@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Wake on LAN",
+    "slug": "wol-client",
+    "scheme": "wol",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "android": {
+      "package": "com.wol.client",
+      "edgeToEdgeEnabled": true
+    },
+    "plugins": ["expo-router", "expo-secure-store"],
+    "experiments": {
+      "typedRoutes": false
+    },
+    "extra": {
+      "serverHost": "192.168.1.10",
+      "serverPort": 8443
+    }
+  }
+}

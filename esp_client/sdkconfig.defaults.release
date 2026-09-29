@@ -1,0 +1,14 @@
+# Production profile, applied on top of sdkconfig.defaults:
+#   idf.py -B build-release -D SDKCONFIG=sdkconfig.release \
+#          -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.release" build
+# Defaults only apply when the sdkconfig file is created, hence the separate sdkconfig.release.
+# Burns eFuses on first boot. This cannot be undone: afterwards the chip only runs
+# images signed with secure_boot_signing_key.pem and flash cannot be read back.
+CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
+
+# Secure Boot v2 needs ESP32 silicon revision 3.0 or newer (any ESP32-S2/S3/C3/C6).
+CONFIG_ESP32_REV_MIN_3=y
+CONFIG_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_V2_ENABLED=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
+CONFIG_SECURE_BOOT_SIGNING_KEY="secure_boot_signing_key.pem"

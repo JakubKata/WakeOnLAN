@@ -1,0 +1,5 @@
+# Runtime dependencies (Python >= 3.11), pinned to the tested versions.
+# Version ranges live in pyproject.toml; keep both in sync.
+argon2-cffi==25.1.0
+asyncpg==0.31.0
+python-dotenv==1.2.3

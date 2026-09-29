@@ -1,0 +1,1441 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wake on LAN – dokumentacja projektu</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #fff; --text: #1c1f24; --muted: #5f6b7a; --border: #dde1e6;
+    --primary: #2563eb; --primary-soft: #e8efff; --server: #7c3aed; --client: #0891b2; --esp: #d97706;
+    --ok: #16a34a; --warn: #b45309; --code-bg: #f1f3f6; --sidebar: 300px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --surface: #1a1f25; --text: #e5e7eb; --muted: #9aa4b2; --border: #2c333c;
+      --primary: #60a5fa; --primary-soft: #1e2a3d; --code-bg: #232a32;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+  body { margin: 0; font: 15px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  a { color: var(--primary); }
+  code, pre, kbd { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 8px; overflow-x: auto; line-height: 1.45; border: 1px solid var(--border); }
+  pre code { background: none; padding: 0; }
+  nav#toc { position: fixed; top: 0; left: 0; bottom: 0; width: var(--sidebar); overflow-y: auto; background: var(--surface); border-right: 1px solid var(--border); padding: 20px 16px 40px; }
+  nav#toc h2 { font-size: 16px; margin: 0 0 4px; }
+  nav#toc .lang { font-size: 13px; margin-bottom: 14px; display: block; }
+  nav#toc ol { list-style: none; padding-left: 0; margin: 0; }
+  nav#toc ol ol { padding-left: 14px; margin-bottom: 4px; }
+  nav#toc a { display: block; padding: 3px 8px; border-radius: 6px; text-decoration: none; color: var(--text); font-size: 13.5px; }
+  nav#toc ol ol a { color: var(--muted); font-size: 13px; }
+  nav#toc a:hover, nav#toc a.active { background: var(--primary-soft); color: var(--primary); }
+  main { margin-left: var(--sidebar); padding: 32px 48px 120px; max-width: calc(var(--sidebar) + 1080px); }
+  @media (max-width: 900px) { nav#toc { position: static; width: auto; border-right: none; border-bottom: 1px solid var(--border); } main { margin-left: 0; padding: 20px; } }
+  h1 { font-size: 30px; margin: 0 0 6px; }
+  h2 { font-size: 23px; margin: 56px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+  h3 { font-size: 18px; margin: 32px 0 8px; }
+  h4 { font-size: 15.5px; margin: 22px 0 6px; }
+  .lead { color: var(--muted); font-size: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; margin: 14px 0; }
+  .note { border-left: 4px solid var(--primary); background: var(--primary-soft); padding: 10px 14px; border-radius: 6px; margin: 14px 0; }
+  .warn { border-left: 4px solid var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); padding: 10px 14px; border-radius: 6px; margin: 14px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; background: var(--surface); font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--code-bg); }
+  .tag { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px; color: #fff; vertical-align: middle; }
+  .tag.server { background: var(--server); } .tag.client { background: var(--client); } .tag.esp { background: var(--esp); }
+  ol.flow { counter-reset: step; list-style: none; padding-left: 0; }
+  ol.flow > li { counter-increment: step; position: relative; padding: 6px 0 6px 42px; border-left: 2px solid var(--border); margin-left: 14px; }
+  ol.flow > li::before { content: counter(step); position: absolute; left: -15px; top: 6px; width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  ol.flow > li:last-child { border-left-color: transparent; }
+  details.module { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin: 10px 0; }
+  details.module > summary { cursor: pointer; padding: 10px 16px; font-weight: 600; list-style: none; }
+  details.module > summary::before { content: "▸ "; color: var(--muted); }
+  details.module[open] > summary::before { content: "▾ "; }
+  details.module > summary code { font-size: 13.5px; }
+  details.module .body { padding: 0 16px 12px; }
+  .fn { border-top: 1px dashed var(--border); padding: 8px 0; }
+  .fn:first-of-type { border-top: none; }
+  .fn .sig { font-weight: 600; background: none; padding: 0; color: var(--primary); }
+  .fn p { margin: 4px 0 0; }
+  .adr { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; margin: 12px 0; }
+  .adr h4 { margin: 0 0 6px; }
+  .adr .why { margin: 4px 0; }
+  .adr .cost { color: var(--muted); margin: 4px 0 0; font-size: 14px; }
+  .adr .label { font-weight: 700; }
+  #fn-search { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 14px; margin: 8px 0 4px; }
+  .hidden { display: none !important; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .grid3 .card h4 { margin-top: 0; }
+  svg text { font-family: system-ui, sans-serif; }
+</style>
+</head>
+<body>
+
+<nav id="toc">
+  <h2>Wake on LAN</h2>
+  <a class="lang" href="documentation_en.html">🇬🇧 English version</a>
+  <ol>
+    <li><a href="#intro">1. Wprowadzenie</a></li>
+    <li><a href="#how-to-read">2. Jak czytać tę dokumentację i kod</a></li>
+    <li><a href="#architecture">3. Architektura</a>
+      <ol>
+        <li><a href="#arch-overview">Obraz całości</a></li>
+        <li><a href="#arch-server">Warstwy serwera</a></li>
+        <li><a href="#arch-client">Warstwy aplikacji</a></li>
+        <li><a href="#arch-esp">Warstwy firmware</a></li>
+      </ol>
+    </li>
+    <li><a href="#structure">4. Struktura repozytorium</a></li>
+    <li><a href="#lifecycle">5. Cykl życia</a>
+      <ol>
+        <li><a href="#lc-server-start">Start i zatrzymanie serwera</a></li>
+        <li><a href="#lc-server-conn">Połączenie na serwerze</a></li>
+        <li><a href="#lc-dispatch">Obsługa jednej komendy</a></li>
+        <li><a href="#lc-app-start">Start aplikacji</a></li>
+        <li><a href="#lc-app-request">Żądanie z aplikacji</a></li>
+        <li><a href="#lc-app-state">Tło / powrót aplikacji</a></li>
+        <li><a href="#lc-esp">Start i pętla ESP32</a></li>
+      </ol>
+    </li>
+    <li><a href="#flows">6. Scenariusze end-to-end</a>
+      <ol>
+        <li><a href="#flow-register">Rejestracja i logowanie</a></li>
+        <li><a href="#flow-pair">Parowanie ESP32</a></li>
+        <li><a href="#flow-wake">Budzenie komputera</a></li>
+        <li><a href="#flow-rotate">Rotacja sekretu</a></li>
+        <li><a href="#flow-reset">Reset hasła</a></li>
+        <li><a href="#flow-revoke">Wylogowanie i unieważnienie</a></li>
+        <li><a href="#flow-remove">Usunięcie urządzenia / konta</a></li>
+      </ol>
+    </li>
+    <li><a href="#reference">7. Opis funkcji i metod</a>
+      <ol>
+        <li><a href="#ref-server">Serwer (Python)</a></li>
+        <li><a href="#ref-client">Aplikacja (TypeScript)</a></li>
+        <li><a href="#ref-esp">Firmware (C++)</a></li>
+      </ol>
+    </li>
+    <li><a href="#data">8. Model danych</a></li>
+    <li><a href="#protocol">9. Protokół w skrócie</a></li>
+    <li><a href="#timeouts">10. Limity czasu i liczby</a></li>
+    <li><a href="#decisions">11. Decyzje architektoniczne</a>
+      <ol>
+        <li><a href="#adr-system">System i sieć</a></li>
+        <li><a href="#adr-protocol">Protokół</a></li>
+        <li><a href="#adr-security">Bezpieczeństwo</a></li>
+        <li><a href="#adr-server">Serwer</a></li>
+        <li><a href="#adr-client">Aplikacja</a></li>
+        <li><a href="#adr-esp">Firmware</a></li>
+        <li><a href="#adr-ops">Wdrożenie i testy</a></li>
+      </ol>
+    </li>
+    <li><a href="#config">12. Konfiguracja i uruchomienie</a></li>
+    <li><a href="#tests">13. Testy</a></li>
+    <li><a href="#glossary">14. Słownik pojęć</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Wake on LAN – dokumentacja projektu</h1>
+<p class="lead">Kompletny przewodnik po kodzie: architektura, cykl życia każdej części, opis wszystkich funkcji i uzasadnienie kluczowych decyzji projektowych.</p>
+
+<!-- ============================================================ -->
+<h2 id="intro">1. Wprowadzenie</h2>
+
+<p>Projekt pozwala zdalnie włączyć komputer w sieci domowej (Wake-on-LAN) z telefonu, będąc poza tą siecią. Składa się z trzech programów:</p>
+
+<div class="grid3">
+  <div class="card"><h4><span class="tag client">client/</span> Aplikacja mobilna</h4>
+    Expo / React Native, TypeScript. Konto użytkownika, lista komputerów („celów”), lista urządzeń ESP32, przycisk „Wybudź”.</div>
+  <div class="card"><h4><span class="tag server">server/</span> Serwer przekazujący</h4>
+    Python 3.11+, <code>asyncio</code>, PostgreSQL (<code>asyncpg</code>). Konta, sesje, parowanie urządzeń, przekazywanie poleceń do ESP32.</div>
+  <div class="card"><h4><span class="tag esp">esp_client/</span> Firmware ESP32</h4>
+    ESP-IDF, C++. Stałe połączenie z serwerem, odbiór <code>WAKE_UP</code>, wysyłka magic packetu UDP w sieci lokalnej.</div>
+</div>
+
+<p>Najważniejsza idea: <strong>ESP32 samo łączy się z serwerem</strong> (połączenie wychodzące), więc w domowym routerze nie trzeba otwierać portów. Publicznie dostępny jest tylko serwer. Aplikacja i ESP32 nigdy nie rozmawiają ze sobą bezpośrednio.</p>
+
+<!-- ============================================================ -->
+<h2 id="how-to-read">2. Jak czytać tę dokumentację i kod</h2>
+
+<h3>Kolejność czytania dokumentacji</h3>
+<ol>
+  <li><a href="#architecture">Architektura</a> – żeby wiedzieć, gdzie co leży.</li>
+  <li><a href="#lifecycle">Cykl życia</a> – co się wykonuje po kolei przy starcie i przy każdym połączeniu.</li>
+  <li><a href="#flows">Scenariusze</a> – jak trzy programy współpracują przy konkretnej akcji użytkownika.</li>
+  <li><a href="#reference">Opis funkcji</a> – jako słownik, do którego wracasz przy czytaniu kodu (jest wyszukiwarka).</li>
+  <li><a href="#decisions">Decyzje architektoniczne</a> – dlaczego kod wygląda tak, a nie inaczej.</li>
+</ol>
+
+<h3>Kolejność czytania kodu</h3>
+<p>Każdą część najłatwiej zrozumieć „od drutu w górę”: najpierw format wiadomości, potem połączenie, potem logika.</p>
+
+<table>
+<tr><th>Część</th><th>Zacznij od</th><th>Potem</th><th>Na końcu</th></tr>
+<tr><td><span class="tag server">serwer</span></td>
+<td><code>protocol.py</code> (ramka, komendy, kody błędów), <code>__main__.py</code> (start)</td>
+<td><code>app.py</code> (pętla połączenia), <code>transport.py</code>, <code>dispatcher.py</code>, <code>session.py</code>, <code>context.py</code></td>
+<td><code>handlers/*.py</code> (logika komend), <code>db/repo.py</code> (SQL), <code>registry.py</code>, <code>security.py</code>, <code>ratelimit.py</code></td></tr>
+<tr><td><span class="tag client">aplikacja</span></td>
+<td><code>src/api/protocol.ts</code>, <code>src/api/connection.ts</code></td>
+<td><code>src/api/client.ts</code> (WolApi), <code>src/session/SessionProvider.tsx</code>, <code>app/_layout.tsx</code></td>
+<td>ekrany w <code>app/</code>, hooki w <code>src/hooks/</code>, komponenty w <code>src/ui/</code></td></tr>
+<tr><td><span class="tag esp">firmware</span></td>
+<td><code>main/main.cpp</code> (<code>app_main</code>)</td>
+<td><code>network/src/wol_client.cpp</code> (<code>WolClient::run</code>)</td>
+<td><code>protocol.cpp</code>, <code>tls_connection.cpp</code>, <code>credentials.cpp</code>, <code>wifi.cpp</code>, <code>magic_packet.cpp</code></td></tr>
+</table>
+
+<h3>Konwencje w kodzie</h3>
+<ul>
+  <li><strong>Nazwy komend</strong> są identyczne we wszystkich trzech programach: <code>Cmd</code> w Pythonie (<code>protocol.py</code>), obiekt <code>Cmd</code> w TS (<code>protocol.ts</code>), stałe <code>CMD_*</code> w C++ (<code>protocol.hpp</code>). Szukając komendy, wyszukaj jej nazwę, np. <code>WAKE_UP</code>, w całym repozytorium.</li>
+  <li><strong>Handler komendy</strong> na serwerze to funkcja z dekoratorem <code>@router.route(Cmd.X, schema=..., auth=..., rate_limit=...)</code>. Dekorator mówi wszystko o warunkach wejścia: typy argumentów, wymagany stan logowania i limit.</li>
+  <li><strong>Błąd domenowy</strong> to zawsze <code>raise CommandError(Err.KOD)</code>; dispatcher zamienia go na <code>NACK ["kod"]</code>. W aplikacji ten sam kod przychodzi jako <code>WolError.code</code>.</li>
+  <li><strong>Repozytoria</strong> (<code>*Repo</code>) zwracają <code>None</code>, gdy nie ma wyniku wyszukiwania, i rzucają <code>NOT_FOUND</code>, gdy modyfikacja nie trafiła w żaden wiersz (także cudzy).</li>
+  <li><strong>Komentarze</strong> w kodzie opisują ograniczenia, których nie widać w samym kodzie (np. wyścigi). Warto je czytać uważnie – zwykle stoi za nimi decyzja z rozdziału 11.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="architecture">3. Architektura</h2>
+
+<h3 id="arch-overview">Obraz całości</h3>
+
+<svg viewBox="0 0 1000 250" width="100%" role="img" aria-label="Diagram architektury">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>
+  </defs>
+  <rect x="10" y="70" width="190" height="100" rx="12" fill="#0891b2"/>
+  <text x="105" y="108" fill="#fff" font-size="17" font-weight="700" text-anchor="middle">Aplikacja</text>
+  <text x="105" y="130" fill="#fff" font-size="13" text-anchor="middle">Expo / React Native</text>
+  <text x="105" y="150" fill="#fff" font-size="12" text-anchor="middle">telefon, dowolna sieć</text>
+
+  <rect x="330" y="50" width="220" height="140" rx="12" fill="#7c3aed"/>
+  <text x="440" y="90" fill="#fff" font-size="17" font-weight="700" text-anchor="middle">Serwer</text>
+  <text x="440" y="112" fill="#fff" font-size="13" text-anchor="middle">Python asyncio</text>
+  <text x="440" y="132" fill="#fff" font-size="12" text-anchor="middle">publiczny adres</text>
+  <rect x="385" y="148" width="110" height="30" rx="6" fill="#5b21b6"/>
+  <text x="440" y="168" fill="#fff" font-size="12" text-anchor="middle">PostgreSQL</text>
+
+  <rect x="660" y="70" width="160" height="100" rx="12" fill="#d97706"/>
+  <text x="740" y="108" fill="#fff" font-size="17" font-weight="700" text-anchor="middle">ESP32</text>
+  <text x="740" y="130" fill="#fff" font-size="13" text-anchor="middle">ESP-IDF, C++</text>
+  <text x="740" y="150" fill="#fff" font-size="12" text-anchor="middle">sieć domowa</text>
+
+  <rect x="880" y="85" width="110" height="70" rx="10" fill="#374151"/>
+  <text x="935" y="116" fill="#fff" font-size="15" font-weight="700" text-anchor="middle">PC</text>
+  <text x="935" y="136" fill="#fff" font-size="11" text-anchor="middle">karta z WoL</text>
+
+  <line x1="200" y1="120" x2="325" y2="120" stroke="#6b7280" stroke-width="2.5" marker-end="url(#arr)"/>
+  <text x="262" y="108" font-size="12" text-anchor="middle" fill="#6b7280">TLS :8443</text>
+  <text x="262" y="140" font-size="11" text-anchor="middle" fill="#6b7280">aplikacja łączy się</text>
+
+  <line x1="655" y1="120" x2="555" y2="120" stroke="#6b7280" stroke-width="2.5" marker-end="url(#arr)"/>
+  <text x="605" y="108" font-size="12" text-anchor="middle" fill="#6b7280">TLS :8444</text>
+  <text x="605" y="140" font-size="11" text-anchor="middle" fill="#6b7280">ESP łączy się</text>
+
+  <line x1="820" y1="120" x2="875" y2="120" stroke="#6b7280" stroke-width="2.5" stroke-dasharray="6 4" marker-end="url(#arr)"/>
+  <text x="848" y="108" font-size="11" text-anchor="middle" fill="#6b7280">UDP</text>
+  <text x="848" y="140" font-size="11" text-anchor="middle" fill="#6b7280">magic</text>
+
+  <text x="500" y="230" font-size="12.5" text-anchor="middle" fill="#6b7280">Obie strzałki TLS pokazują kierunek nawiązania połączenia. Po nawiązaniu dane płyną w obie strony (serwer „pcha” WAKE_UP do ESP).</text>
+</svg>
+
+<p>Wszystkie trzy programy używają <strong>tego samego formatu ramek</strong>: jeden obiekt JSON na linię, <code>{"KOMENDA":[arg1,arg2]}\n</code>. Wiadomości do serwera mają maks. 4096 bajtów, odpowiedzi serwera do klienta mogą być dłuższe (aplikacja przyjmuje do 64 KiB). Szczegóły w <a href="#protocol">rozdziale 9</a>.</p>
+
+<h3 id="arch-server">Warstwy serwera</h3>
+<pre>
+ __main__.py        main() → run(): ładuje .env, Settings, Database, Services, WolServer
+      │
+ app.py             WolServer: dwa porty TLS, limity połączeń, pętla _serve, heartbeat, sprzątanie
+      │
+ transport.py       Connection: czytanie/pisanie linii z timeoutami
+ protocol.py        Message.encode / decode, Cmd, Err
+      │
+ dispatcher.py      Dispatcher.dispatch: routing (rola, komenda) → handler, walidacja schematu,
+      │             stan logowania, limit per IP, ponowna weryfikacja sesji, CommandError → NACK
+      │
+ handlers/          auth · account · password_reset · devices · targets · esp
+      │             (logika komend; każda funkcja = jedna komenda)
+      │
+ ┌────┴──────────────┬────────────────┬─────────────┬─────────────┐
+ db/repo.py        registry.py      security.py   ratelimit.py   mailer.py
+ (PostgreSQL)      (połączenia      (Argon2,      (token bucket, (SMTP w tle)
+                    w pamięci)       HMAC)         limity poł.)
+</pre>
+<p><code>Services</code> (w <code>context.py</code>) to kontener wszystkich zależności współdzielonych przez proces. <code>Context</code> = <code>Services</code> + <code>Session</code> (stan jednego połączenia) + <code>Connection</code>. Każdy handler dostaje <code>Context</code> jako pierwszy argument i nie sięga po nic spoza niego.</p>
+
+<h3 id="arch-client">Warstwy aplikacji</h3>
+<pre>
+ app/_layout.tsx        RootLayout → SessionProvider → RootNavigator (Stack.Protected wg statusu)
+      │
+ app/(auth)/*           login · register · reset          (widoczne, gdy wylogowany)
+ app/(tabs)/*           index (komputery) · devices · account
+ app/target/*, device/  new · [id] · pair                  (widoczne, gdy zalogowany)
+      │
+ src/hooks/             useRemote (ładowanie danych przy fokusie), useAsyncAction (formularze)
+ src/session/           SessionProvider: status, SecureStore, login/logout, AppState
+      │
+ src/api/client.ts      WolApi (singleton `api`): metody domenowe, sesja, walidacja odpowiedzi
+ src/api/connection.ts  WolConnection: gniazdo TLS, bufor linii, kolejka oczekujących żądań, PING
+ src/api/protocol.ts    encode / decode, Cmd, ErrCode
+ src/api/errors.ts      WolError, polskie komunikaty
+</pre>
+
+<h3 id="arch-esp">Warstwy firmware</h3>
+<pre>
+ main/main.cpp                 app_main: NVS, Wi-Fi, zadanie wol_client, konsola UART (claim)
+      │
+ components/network/           WolClient (sesja, obsługa komend) · TlsConnection · Packet (cJSON)
+ components/storage/           credentials:: (NVS: device_id, secret, claim, used_claim)
+ components/wifi/              wifi::start / wait_connected (automatyczne ponowne łączenie)
+ components/wol/               wol::parse_mac / send_magic_packet (UDP broadcast)
+</pre>
+
+<!-- ============================================================ -->
+<h2 id="structure">4. Struktura repozytorium</h2>
+<pre>
+wake/
+├── README.md                         instrukcja uruchomienia (PL)
+├── docs/                             ta dokumentacja (PL i EN)
+├── server/
+│   ├── PROTOCOL.md                   pełna specyfikacja protokołu, limity, kody błędów
+│   ├── pyproject.toml, requirements*.txt
+│   ├── Dockerfile, docker-compose.yml, .env.example
+│   ├── wol_server/
+│   │   ├── __main__.py               punkt wejścia: python -m wol_server
+│   │   ├── app.py                    WolServer: porty, TLS, pętla połączenia
+│   │   ├── config.py                 Settings.from_env: walidacja zmiennych środowiskowych
+│   │   ├── context.py                Services, Context (wstrzykiwanie zależności)
+│   │   ├── dispatcher.py             Router, Route, Dispatcher
+│   │   ├── errors.py                 CommandError
+│   │   ├── mailer.py                 Mailer, SmtpSettings
+│   │   ├── protocol.py               Message, Cmd, Err, ack, nack
+│   │   ├── ratelimit.py              RateLimiter (token bucket), ConnectionLimiter
+│   │   ├── registry.py               Registry, DeviceLink (połączenia na żywo)
+│   │   ├── security.py               Security: Argon2, HMAC tokenów, kody resetu
+│   │   ├── session.py                Role, Session
+│   │   ├── transport.py              Connection, FrameTooLong
+│   │   ├── validation.py             reguły pól wejściowych
+│   │   ├── db/
+│   │   │   ├── repo.py               Database + repozytoria (SQL)
+│   │   │   └── schema.py             migracje schematu
+│   │   └── handlers/
+│   │       ├── __init__.py           build_dispatcher()
+│   │       ├── auth.py               PING, REGISTER, LOGIN, RESUME
+│   │       ├── account.py            LOGOUT(_ALL), CHANGE_PASSWORD/NAME, DELETE_ACCOUNT
+│   │       ├── password_reset.py     REQUEST_PASSWORD_RESET, RESET_PASSWORD
+│   │       ├── devices.py            CREATE_CLAIM, LIST/RENAME/REMOVE_DEVICE, ROTATE_DEVICE_SECRET
+│   │       ├── targets.py            ADD/LIST/RENAME/ASSIGN/REMOVE_TARGET, WAKE_UP
+│   │       └── esp.py                DEVICE_CLAIM, DEVICE_AUTH, PING, PONG, WAKE_ACK, SECRET_ACK
+│   └── tests/                        pytest: jednostkowe i integracyjne (TLS + PostgreSQL)
+├── client/
+│   ├── app.json, eas.json, metro.config.js, package.json, tsconfig.json
+│   ├── assets/server.pem             przypięty certyfikat serwera (poza gitem)
+│   ├── app/                          ekrany (Expo Router, routing plikowy)
+│   │   ├── _layout.tsx               korzeń: SessionProvider + chronione trasy
+│   │   ├── (auth)/                   _layout, login, register, reset
+│   │   ├── (tabs)/                   _layout, index, devices, account
+│   │   ├── target/                   new, [id]
+│   │   └── device/pair.tsx
+│   └── src/
+│       ├── api/                      protocol, connection, client, errors
+│       ├── session/SessionProvider.tsx
+│       ├── hooks/                    useRemote, useAsyncAction
+│       ├── ui/                       components, PromptModal, DevicePicker, theme
+│       ├── i18n.ts                   teksty interfejsu po polsku i angielsku
+│       └── validation.ts             lustro server/validation.py
+└── esp_client/
+    ├── CMakeLists.txt, partitions.csv
+    ├── sdkconfig.defaults            szyfrowanie flash + NVS (Development)
+    ├── sdkconfig.defaults.release    Release + Secure Boot v2
+    ├── main/                         main.cpp, Kconfig.projbuild, certs/server.crt
+    └── components/
+        ├── network/                  wol_client, tls_connection, protocol (+ cJSON)
+        ├── storage/                  credentials (NVS)
+        ├── wifi/                     wifi
+        └── wol/                      magic_packet
+</pre>
+
+<!-- ============================================================ -->
+<h2 id="lifecycle">5. Cykl życia – co się wykonuje po kolei</h2>
+
+<h3 id="lc-server-start">5.1 Start i zatrzymanie serwera <span class="tag server">serwer</span></h3>
+<ol class="flow">
+  <li><code>python -m wol_server</code> uruchamia <code>__main__.main()</code>.</li>
+  <li><code>load_dotenv(server/.env)</code> – wczytuje zmienne z pliku do <code>os.environ</code>.</li>
+  <li><code>Settings.from_env(os.environ, base_dir)</code> – waliduje każdą zmienną (porty, pepper ≥ 32 znaki, <code>DATABASE_URL</code>, istnienie plików certyfikatu, SMTP). Błąd kończy proces komunikatem <code>configuration error: ...</code>, zanim cokolwiek się uruchomi.</li>
+  <li><code>logging.basicConfig(level=...)</code>.</li>
+  <li><code>asyncio.run(run(settings))</code> – od tej chwili wszystko działa w jednej pętli zdarzeń.</li>
+  <li><code>Database(...).connect()</code> – tworzy pulę połączeń <code>asyncpg</code> (min 1, max <code>DB_POOL_SIZE</code>, timeout zapytania 10 s).</li>
+  <li><code>db.migrate()</code> → <code>schema.migrate(conn)</code> – w transakcji z blokadą doradczą (<code>pg_advisory_xact_lock</code>) stosuje brakujące migracje i zapisuje ich numery w <code>schema_migrations</code>. Jeśli baza jest nowsza niż kod – <code>SchemaError</code>.</li>
+  <li><code>Mailer(settings.smtp)</code> albo <code>None</code> (wtedy ostrzeżenie: reset hasła wyłączony).</li>
+  <li><code>Services.create(db, Security(pepper), mailer=...)</code> – tworzy repozytoria, <code>Registry</code>, <code>RateLimiter</code>. <code>Security.__init__</code> od razu liczy „atrapę” hasha Argon2 (potrzebną przy logowaniu na nieistniejące konto).</li>
+  <li><code>build_dispatcher()</code> – zbiera routery ze wszystkich modułów <code>handlers/*</code> w jeden <code>Dispatcher</code> (i sprawdza, czy nie ma zdublowanych komend).</li>
+  <li><code>WolServer.start()</code>:
+    <ul>
+      <li><code>build_ssl_context()</code> – TLS ≥ 1.2, bez kompresji, ładuje certyfikat i klucz;</li>
+      <li>dla każdej roli (<code>CLIENT</code>, <code>DEVICE</code>) <code>asyncio.start_server(partial(_on_connect, role), host, port, limit=4096)</code> – <strong>bez</strong> <code>ssl=</code>, TLS jest włączany ręcznie później;</li>
+      <li>uruchamia zadanie <code>_purge_loop()</code>.</li>
+    </ul>
+  </li>
+  <li><code>serve_forever()</code> – czeka na oba serwery. Każde nowe połączenie TCP to nowa korutyna <code>_on_connect</code> (patrz 5.2).</li>
+  <li>Co godzinę <code>_purge_loop</code> usuwa wygasłe sesje, claimy i kody resetu.</li>
+  <li><strong>Zatrzymanie</strong> (Ctrl+C / SIGINT): <code>KeyboardInterrupt</code> przerywa <code>serve_forever</code>, blok <code>finally</code> woła <code>WolServer.close()</code> (anuluje purge, zamyka nasłuchiwanie, zamyka wszystkie połączenia i czeka na nie), potem <code>mailer.close()</code> (czeka do 20 s na wysłanie maili w kolejce), na końcu <code>db.close()</code>.</li>
+</ol>
+
+<h3 id="lc-server-conn">5.2 Cykl życia jednego połączenia na serwerze <span class="tag server">serwer</span></h3>
+<ol class="flow">
+  <li><code>_on_connect(role, reader, writer)</code> – odczyt adresu IP klienta.</li>
+  <li><code>ConnectionLimiter.acquire(ip)</code> dla limitu ogólnego (20/IP, 1000/port). Przekroczenie → <code>_abort(writer)</code>, koniec.</li>
+  <li><code>acquire(ip)</code> dla limitu „niezalogowanych” (5/IP, 256/port). Przekroczenie → zwolnienie pierwszego limitu i <code>_abort</code>.</li>
+  <li><code>writer.start_tls(ssl_context, ssl_handshake_timeout=5)</code> – dopiero teraz handshake TLS. Błąd → <code>_abort</code>.</li>
+  <li><code>_run_connection</code>: dodaje <code>Connection</code> do zbioru aktywnych, tworzy <code>Context(services, Session(role, ip), conn)</code>.</li>
+  <li><code>_serve(ctx, on_authenticated)</code> – pętla:
+    <ul>
+      <li>wylicza timeout przez <code>_read_timeout</code>: przed zalogowaniem = czas do terminu 30 s od połączenia; zalogowany ESP = 30 s; zalogowany klient = 300 s;</li>
+      <li><code>conn.read_message(timeout)</code>:
+        <ul>
+          <li><code>TimeoutError</code> → <code>_on_idle</code>: dla zalogowanego ESP wysyła <code>PING</code> i kontynuuje, chyba że cisza trwa ≥ 90 s; w innym wypadku koniec połączenia;</li>
+          <li><code>ProtocolError</code> (zły JSON) → <code>NACK bad_frame</code>; przed zalogowaniem trzecia zła ramka kończy połączenie;</li>
+          <li><code>FrameTooLong</code> → <code>NACK frame_too_long</code> i koniec;</li>
+          <li><code>None</code> (klient zamknął) → koniec;</li>
+        </ul>
+      </li>
+      <li><code>Dispatcher.dispatch(ctx, message)</code> → odpowiedź (patrz 5.3);</li>
+      <li>jeśli sesja jest już zalogowana → <code>on_authenticated()</code> zwalnia slot w limicie „niezalogowanych” (tylko raz);</li>
+      <li>jeśli jest odpowiedź → <code>conn.send(reply)</code> (termin zapisu 10 s);</li>
+      <li>pętla kończy się też, gdy handler ustawi <code>session.close_requested</code> (np. LOGOUT) albo połączenie zostało zamknięte z zewnątrz (np. <code>kick_user</code>).</li>
+    </ul>
+  </li>
+  <li><code>_cleanup(ctx)</code>: dla ESP – <code>registry.detach_device</code> + <code>devices.touch</code> (zapis <code>last_seen_at</code>); dla klienta – <code>registry.remove_client</code>. Potem zamknięcie gniazda.</li>
+  <li>Blok <code>finally</code> w <code>_on_connect</code> zwalnia oba limity połączeń.</li>
+</ol>
+
+<h3 id="lc-dispatch">5.3 Obsługa jednej komendy (<code>Dispatcher.dispatch</code>) <span class="tag server">serwer</span></h3>
+<ol class="flow">
+  <li>Szuka trasy po kluczu <code>(session.role, message.command)</code>. Brak → <code>NACK unknown_command</code>. Dzięki temu ESP nie wyśle komendy klienta i odwrotnie.</li>
+  <li>Sprawdza <code>route.auth</code>: <code>True</code> wymaga zalogowania (<code>unauthenticated</code>), <code>False</code> wymaga braku zalogowania (<code>already_authenticated</code>), <code>None</code> – obojętne.</li>
+  <li><code>_matches(schema, args)</code> – liczba i <em>dokładne</em> typy argumentów (<code>type(arg) is kind</code>, więc <code>true</code> nie przejdzie jako <code>int</code>). Błąd → <code>bad_args</code>.</li>
+  <li>Jeśli trasa ma <code>rate_limit</code> → <code>limiter.allow(nazwa, ip)</code>. Brak tokenu → <code>rate_limited</code>.</li>
+  <li>Dla komend wymagających logowania – <code>_session_still_valid</code>: co najwyżej raz na 60 s sprawdza w bazie, czy token sesji nadal istnieje. Jeśli nie → <code>close_requested = True</code> i <code>invalid_token</code>.</li>
+  <li>Wywołuje handler: <code>await route.handler(ctx, *message.args)</code>.</li>
+  <li><code>CommandError(code)</code> → <code>NACK [code]</code>; każdy inny wyjątek → wpis w logu i <code>NACK internal</code>. Handler może zwrócić <code>None</code> – wtedy nic nie jest wysyłane (np. <code>WAKE_ACK</code> od ESP).</li>
+</ol>
+
+<h3 id="lc-app-start">5.4 Start aplikacji <span class="tag client">aplikacja</span></h3>
+<ol class="flow">
+  <li>Expo Router renderuje <code>app/_layout.tsx</code> → <code>RootLayout</code> → <code>&lt;SessionProvider&gt;</code> → <code>&lt;RootNavigator&gt;</code>.</li>
+  <li><code>SessionProvider</code> startuje ze statusem <code>"loading"</code>; <code>RootNavigator</code> pokazuje wtedy tylko spinner.</li>
+  <li>Efekt 1: <code>api.onSessionInvalid = () =&gt; signOutLocally()</code> – od tej pory każda odmowa tokenu przez serwer wyloguje użytkownika lokalnie.</li>
+  <li>Efekt 2 (jednorazowy): równolegle odczytuje z <code>SecureStore</code> token, nazwę użytkownika, host i port. Jeśli odczyt rzuci wyjątek (np. klucz Keystore nie pozwala odszyfrować danych), czyści zapisaną sesję, konfiguruje <code>api</code> z adresem domyślnym i bez tokenu, i ustawia <code>status = "signedOut"</code>, zamiast zostać na spinnerze.</li>
+  <li>Buduje adres serwera (zapisany albo domyślny z <code>app.json → expo.extra</code>) i woła <code>api.configure(address, token)</code>. Nie otwiera jeszcze połączenia.</li>
+  <li><code>flushPendingLogout()</code> w tle – jeśli poprzednie wylogowanie nie dotarło do serwera, próbuje teraz unieważnić stary token.</li>
+  <li>Brak tokenu → <code>status = "signedOut"</code> → widoczna grupa <code>(auth)</code> (ekran logowania).</li>
+  <li>Jest token → od razu <code>status = "signedIn"</code> (optymistycznie, z zapamiętaną nazwą), widoczne zakładki. W tle <code>api.connect()</code> → <code>RESUME</code>; po sukcesie aktualizuje nazwę użytkownika. Jeśli serwer odrzuci token, <code>onSessionInvalid</code> przełączy na ekran logowania.</li>
+  <li><code>RootNavigator</code> używa <code>Stack.Protected guard={signedIn}</code>: zmiana statusu automatycznie przełącza dostępne trasy.</li>
+</ol>
+
+<h3 id="lc-app-request">5.5 Typowe żądanie z aplikacji (np. lista komputerów) <span class="tag client">aplikacja</span></h3>
+<ol class="flow">
+  <li>Ekran <code>(tabs)/index.tsx</code> dostaje fokus → <code>useRemote(loadPanel)</code> → <code>useFocusEffect</code> → <code>reload()</code>.</li>
+  <li><code>reload</code> zwiększa licznik <code>generation</code>, ustawia <code>loading</code> i woła <code>loadPanel()</code> = <code>Promise.all([api.listTargets(), api.listDevices()])</code>.</li>
+  <li><code>api.listTargets()</code> → prywatne <code>call(LIST_TARGETS)</code> → <code>ensureSession()</code>.</li>
+  <li><code>ensureSession</code>: jeśli nie ma aktywnej obietnicy sesji, tworzy ją przez <code>openSession()</code> i zapamiętuje. Drugie równoległe wywołanie (<code>listDevices</code>) dostaje tę samą obietnicę – tylko jeden <code>RESUME</code>.</li>
+  <li><code>openSession</code> → <code>open()</code> → <code>WolConnection.connect(host, port)</code>: <code>TcpSocket.connectTLS</code> z <code>ca: serverCertificate</code> (przypięty certyfikat), timeout 10 s, po połączeniu start interwału <code>PING</code> co 60 s.</li>
+  <li><code>conn.request(RESUME, [token])</code> → zapis linii do gniazda, dodanie <code>{resolve, reject, timer}</code> na koniec kolejki <code>pending</code>.</li>
+  <li>Przychodzą dane → <code>onData</code> składa bufor, tnie po <code>\n</code> → <code>onLine</code> → <code>decode</code> → zdejmuje <em>pierwszy</em> element z kolejki → <code>ACK</code>/<code>PONG</code> = resolve, <code>NACK</code> = reject z <code>WolError(kod)</code>.</li>
+  <li>Po udanym <code>RESUME</code> właściwe <code>request(LIST_TARGETS)</code>; odpowiedź przechodzi przez strażnika typów <code>list(value, isTarget)</code> – zły kształt danych daje <code>protocol_error</code>.</li>
+  <li>Wynik wraca do <code>useRemote</code>; jeśli w międzyczasie uruchomiono nowsze <code>reload</code> (inna generacja), wynik jest ignorowany. Inaczej <code>setData</code> i render listy.</li>
+  <li>Błąd → <code>describeError</code> → komunikat w <code>ErrorText</code>. Gdy kodem jest <code>invalid_token</code>, <code>WolApi.sessionRevoked()</code> czyści token i wywołuje <code>onSessionInvalid</code> (wylogowanie).</li>
+</ol>
+
+<h3 id="lc-app-state">5.6 Aplikacja w tle i po powrocie <span class="tag client">aplikacja</span></h3>
+<ul>
+  <li><code>AppState</code> = <code>"background"</code> (i status <code>signedIn</code>) → <code>api.disconnect()</code>: połączenie jest zamykane, obietnica sesji zerowana.</li>
+  <li><code>AppState</code> = <code>"active"</code> → <code>flushPendingLogout()</code> i <code>api.connect()</code> (nowe połączenie + <code>RESUME</code>).</li>
+  <li>Jeśli połączenie zerwie się samo (błąd, timeout żądania), <code>WolConnection.fail</code> woła <code>onClosed</code> → <code>WolApi</code> zeruje <code>session</code>; następne wywołanie <code>call()</code> połączy się ponownie automatycznie.</li>
+</ul>
+
+<h3 id="lc-esp">5.7 Start i główna pętla ESP32 <span class="tag esp">firmware</span></h3>
+<ol class="flow">
+  <li><code>app_main()</code> (wywoływane przez ESP-IDF po bootloaderze).</li>
+  <li><code>init_nvs()</code> – <code>nvs_flash_init()</code>; przy szyfrowaniu NVS odczytuje (albo przy pierwszym starcie generuje) klucze z partycji <code>nvs_keys</code>. Uszkodzona partycja jest kasowana i inicjowana ponownie.</li>
+  <li><code>wifi::start(SSID, hasło)</code> – tryb stacji; handler zdarzeń sam łączy się ponownie po każdym rozłączeniu i ustawia/zeruje bit <code>CONNECTED_BIT</code>.</li>
+  <li><code>xTaskCreate(client_task, "wol_client", 10 KB, prio 5)</code> – osobne zadanie FreeRTOS z <code>WolClient</code>.</li>
+  <li><code>start_console()</code> – REPL na UART z komendą <code>claim &lt;token&gt;</code>. <code>app_main</code> kończy się, zadania działają dalej.</li>
+  <li><code>WolClient::run()</code> – nieskończona pętla:
+    <ul>
+      <li><code>load_identity()</code> – dane z RAM albo z NVS (<code>credentials::load</code>); jeśli są tylko w RAM, ponawia zapis;</li>
+      <li>brak tożsamości → <code>pending_claim_token()</code>: token z konsoli (NVS <code>claim</code>) albo z Kconfig, pod warunkiem że nie jest oznaczony jako zużyty;</li>
+      <li>brak jednego i drugiego → log „device is not paired” i <code>ulTaskNotifyTake</code> – zadanie śpi, aż komenda <code>claim</code> je obudzi (<code>xTaskNotifyGive</code>);</li>
+      <li><code>wifi::wait_connected()</code> – czeka na adres IP;</li>
+      <li><code>TlsConnection::connect(host, port, ca_pem, skip_cn)</code> – TLS z przypiętym certyfikatem; błąd → <code>backoff()</code>;</li>
+      <li><code>auth_with_credentials()</code> (<code>DEVICE_AUTH</code>) albo <code>claim_device()</code> (<code>DEVICE_CLAIM</code>); porażka → zamknięcie i <code>backoff()</code>;</li>
+      <li>sukces → reset backoff do 2 s i <code>session_loop()</code>;</li>
+      <li>po wyjściu z <code>session_loop</code> – zamknięcie połączenia i kolejny obrót pętli.</li>
+    </ul>
+  </li>
+  <li><code>session_loop()</code>: <code>read_line</code> z krokiem 5 s. Timeout → jeśli od 60 s nic nie przyszło, wysyła <code>PING</code>; jeśli na PING nie ma odpowiedzi przez 15 s – koniec sesji. Linia → <code>Packet::decode</code> → <code>handle()</code>:
+    <ul>
+      <li><code>PING</code> → <code>PONG</code>; <code>PONG</code>/<code>ACK</code> → nic;</li>
+      <li><code>WAKE_UP</code> → <code>handle_wake_up</code> (magic packet, potem <code>WAKE_ACK</code>);</li>
+      <li><code>SET_SECRET</code> → <code>handle_set_secret</code> (zapis do NVS, potem <code>SECRET_ACK</code>);</li>
+      <li><code>UNPAIRED</code> → <code>forget_identity()</code> i wyjście (ESP czeka na nowy claim);</li>
+      <li><code>NACK</code> i nieznane komendy → tylko log, nigdy odpowiedź.</li>
+    </ul>
+  </li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="flows">6. Scenariusze end-to-end</h2>
+<p>Poniżej, dla każdej akcji użytkownika, pełny łańcuch wywołań przez wszystkie trzy programy.</p>
+
+<h3 id="flow-register">6.1 Rejestracja i logowanie</h3>
+<pre>
+Aplikacja                                  Serwer                                         Baza
+─────────                                  ──────                                         ────
+RegisterScreen.submit
+  usernameError/emailError/passwordError   (walidacja lokalna)
+  session.register → api.register
+    authenticate(REGISTER): token=null,
+    disconnect, open() (nowe połączenie)
+    request REGISTER [name,email,pass] ──► dispatch: auth=False, rate_limit "register"
+                                           auth.register
+                                             validate.username/email/password
+                                             limiter.require("register_email", email)
+                                             security.hash_password (Argon2, wątek)
+                                             new_token + token_hash (HMAC)
+                                             users.register ─────────────────────────► INSERT users
+                                                                                       INSERT sessions (1 transakcja)
+                                             bind_session → registry.add_client
+                                               sessions.exists (sprawdzenie wyścigu)
+                        ACK [token,name] ◄──
+  signIn: SecureStore.set(token, name)
+  status = signedIn → zakładki
+</pre>
+<p><strong>Logowanie</strong> (<code>auth.login</code>) różni się tym, że:</p>
+<ul>
+  <li>przed sprawdzeniem hasła sprawdza (<code>peek</code>) dwa kubełki: <code>(konto, IP)</code> 10/min i <code>konto</code> 100/h, i od razu, bez żadnego <code>await</code> pomiędzy, pobiera z nich token (<code>consume</code>). Po poprawnym haśle oddaje go (<code>refund</code>), więc liczą się tylko <em>nieudane</em> próby, a równoległe połączenia nie mogą razem wykorzystać ostatniego tokenu;</li>
+  <li>dla nieistniejącego konta weryfikuje hasło z „atrapą” hasha, żeby czas odpowiedzi nie zdradzał, czy konto istnieje;</li>
+  <li>jeśli parametry Argon2 się zmieniły, przelicza hash (<code>needs_rehash</code> → <code>rehash_password</code>);</li>
+  <li>sesję tworzy przez <code>start_session(ctx, user.id, user.session_epoch)</code> – jeśli w trakcie logowania ktoś zmienił hasło lub zrobił LOGOUT_ALL, epoka się nie zgadza i logowanie kończy się <code>invalid_credentials</code>.</li>
+</ul>
+<p><strong>Wznowienie sesji</strong> (<code>RESUME</code>) = <code>sessions.refresh</code> (przedłuża ważność o 30 dni od teraz i zwraca <code>user_id</code>) → <code>users.by_id</code> → <code>bind_session</code>.</p>
+
+<h3 id="flow-pair">6.2 Parowanie ESP32 (claim token)</h3>
+<pre>
+Aplikacja (PairDeviceScreen)          Serwer                                  ESP32
+────────────────────────────          ──────                                  ─────
+create → api.createClaim(name) ─────► devices.create_claim
+                                        validate.label
+                                        new_token(16 B)
+                                        claims.create: lock user, limit 10 urządzeń,
+                                          DELETE stary claim, INSERT nowy (TTL 600 s)
+             ACK [token, 600] ◄──────
+pokazuje token + odliczanie,
+przycisk „Kopiuj”
+                         użytkownik wpisuje w konsoli UART:  wol> claim &lt;token&gt;
+                                                                     claim_command
+                                                                       is_token, save_claim_token (NVS)
+                                                                       xTaskNotifyGive → budzi WolClient
+                                                                     run: pending_claim_token → token
+                                                                     wifi::wait_connected, TLS connect
+                                      esp.device_claim ◄──────────── DEVICE_CLAIM [token]
+                                        validate.token, token_hash
+                                        new device_id (12 B), secret (32 B)
+                                        devices.redeem_claim:
+                                          DELETE claim RETURNING (jednorazowość)
+                                          INSERT device (secret_hash)
+                                        attach → registry.attach_device
+                                      ACK [device_id, secret] ──────►  claim_device
+                                                                       creds_ w RAM, persist_identity (NVS)
+                                                                       mark_claim_token_used
+                                                                     session_loop …
+DevicesScreen przy fokusie: LIST_DEVICES → urządzenie „online”
+</pre>
+
+<h3 id="flow-wake">6.3 Budzenie komputera (<code>WAKE_UP</code>)</h3>
+<pre>
+Aplikacja (TargetsScreen)             Serwer (targets.wake_up)                   ESP32 (WolClient)
+─────────────────────────             ────────────────────────                   ─────────────────
+wake(target)
+  setWaking(id)
+  api.wakeUp(id)  (timeout 20 s) ───► limiter.require("wake", user_id)
+                                      targets.get(user, id)   → not_found?
+                                      target.device_id None   → no_device?
+                                      registry.device(id)     → device_offline?
+                                      link.request(WAKE_UP, mac, timeout=5):
+                                        request_id = token_hex(8)
+                                        Future w _pending[request_id]
+                                        send WAKE_UP [rid, mac] ─────────────►  handle_wake_up
+                                                                                  parse_mac
+                                                                                  send_magic_packet:
+                                                                                    3× (255.255.255.255
+                                                                                        + broadcast podsieci), UDP :9
+                                      esp.wake_ack ◄───────────────────────── WAKE_ACK [rid]
+                                        acknowledge → link.resolve(rid)
+                                        Future spełniony → True
+            ACK [target_id] ◄────────
+Alert „Wysłano”
+(timeout 5 s po stronie serwera → NACK device_unreachable → Alert z błędem + reload)
+</pre>
+
+<h3 id="flow-rotate">6.4 Rotacja sekretu urządzenia</h3>
+<ol class="flow">
+  <li>Aplikacja: <code>DevicesScreen.rotate</code> → potwierdzenie → <code>api.rotateDeviceSecret(id)</code> (timeout 20 s).</li>
+  <li>Serwer <code>devices.rotate_device_secret</code>: urządzenie musi być online i należeć do użytkownika (inaczej <code>device_offline</code> / <code>not_found</code>).</li>
+  <li>Pod <code>link.rotation_lock</code> (rotacje tego samego urządzenia idą po kolei): nowy sekret 32 B → <code>devices.stage_secret</code> zapisuje jego HMAC w <code>next_secret_hash</code>. Stary sekret nadal działa.</li>
+  <li><code>link.request(SET_SECRET, secret, timeout=5)</code> → ESP <code>handle_set_secret</code>: najpierw zapis do NVS (<code>save_secret</code>), dopiero potem <code>SECRET_ACK</code>.</li>
+  <li>Serwer: <code>devices.promote_secret</code> – <code>next_secret_hash</code> staje się <code>secret_hash</code>. Jeśli ESP w międzyczasie zrestartował się i zalogował nowym sekretem, <code>authenticate()</code> już to zrobiło – <code>promote_secret</code> też zwróci sukces.</li>
+  <li>Brak potwierdzenia → serwer rozłącza ESP (<code>registry.detach_device</code>) i zwraca <code>device_unreachable</code>. Nie wiadomo, czy ESP zapisał nowy sekret, więc rozstrzyga to jego następne <code>DEVICE_AUTH</code>: logowanie nowym sekretem awansuje go na bieżący, a logowanie starym kasuje <code>next_secret_hash</code>. Kolejna rotacja wymaga urządzenia online, więc zaczyna się zawsze od czystego stanu i nie nadpisze sekretu, który ESP naprawdę ma.</li>
+</ol>
+
+<h3 id="flow-reset">6.5 Reset hasła przez e-mail</h3>
+<ol class="flow">
+  <li>Aplikacja: <code>LoginScreen.openReset</code> zapisuje adres serwera → <code>ResetPasswordScreen</code>, krok „email” → <code>session.requestPasswordReset</code> → <code>api.requestPasswordReset</code> na <strong>osobnym</strong>, krótkotrwałym połączeniu (<code>withSideConnection</code>).</li>
+  <li>Serwer <code>password_reset.request_password_reset</code>: bez SMTP → <code>reset_unavailable</code>. Walidacja e-maila. Limit na e-mail jest <em>cichy</em> (zawsze <code>ACK []</code>). Nieznany adres → też <code>ACK []</code>.</li>
+  <li>Znany adres: <code>new_reset_code()</code> (10 znaków, alfabet Crockforda) → <code>resets.create</code> (zastępuje poprzedni, zeruje próby, TTL 15 min) → <code>mailer.send_later</code> (wysyłka w tle, odpowiedź nie czeka) → <code>ACK []</code>.</li>
+  <li>Aplikacja przechodzi do kroku „code”. <code>normalizeResetCode</code> akceptuje spacje, myślniki, małe litery, O/I/L.</li>
+  <li><code>api.resetPassword</code> → <code>authenticate(RESET_PASSWORD, ...)</code> (nowe połączenie). Serwer: walidacja, limit na (e-mail, IP), <code>resets.consume</code> (porównanie w stałym czasie; zła próba zwiększa licznik, 50. zła kasuje kod).</li>
+  <li>Sukces: <code>users.change_password</code> (nowy hash + <code>_revoke_credentials</code>: epoka +1, usunięcie sesji, kodów i claimów) → <code>registry.kick_user</code> (rozłącza wszystkie aplikacje) → <code>start_session</code> z nową epoką → <code>ACK [token, name]</code>. Aplikacja zapisuje token i jest zalogowana.</li>
+</ol>
+
+<h3 id="flow-revoke">6.6 Wylogowanie i unieważnianie sesji</h3>
+<table>
+<tr><th>Akcja</th><th>Aplikacja</th><th>Serwer</th></tr>
+<tr><td><code>LOGOUT</code></td><td><code>session.logout</code>: czyta token; <code>api.logout</code> → <code>forget</code>. Jeśli serwer nieosiągalny – token trafia do <code>pending_logout</code> w SecureStore i zostanie unieważniony później (<code>flushPendingLogout</code> → <code>api.revokeToken</code>: <code>RESUME</code> + <code>LOGOUT</code> na osobnym połączeniu). Zawsze <code>signOutLocally</code>.</td><td><code>account.logout</code>: <code>sessions.delete</code>, <code>end_connection</code> (odpięcie + <code>close_requested</code>).</td></tr>
+<tr><td><code>LOGOUT_ALL</code></td><td><code>session.logoutAll</code> → <code>api.logoutAll</code> → <code>signOutLocally</code>.</td><td><code>users.revoke_all</code> (epoka +1, usuwa sesje/kody/claimy), <code>kick_user</code> (zamyka inne połączenia), <code>end_connection</code>.</td></tr>
+<tr><td><code>CHANGE_PASSWORD</code></td><td><code>api.changePassword</code> zapamiętuje nowy token w <code>WolApi</code>; <code>SessionProvider</code> zapisuje go w SecureStore.</td><td><code>confirm_password</code> (limit 5/min), <code>users.change_password</code>, <code>kick_user(keep=to połączenie)</code>, <code>start_session</code> z nową epoką. Jeśli się nie uda – to połączenie też jest wylogowane.</td></tr>
+<tr><td>Sesja unieważniona w tle</td><td>Dowolne <code>call()</code> dostaje <code>invalid_token</code> → <code>sessionRevoked</code> → <code>onSessionInvalid</code> → ekran logowania.</td><td><code>_session_still_valid</code> sprawdza token co ≤ 60 s; zwykle połączenie i tak jest już zamknięte przez <code>kick_user</code>.</td></tr>
+</table>
+
+<h3 id="flow-remove">6.7 Usunięcie urządzenia i konta</h3>
+<ul>
+  <li><strong>REMOVE_DEVICE</strong>: <code>devices.delete</code> (cele przypisane do urządzenia dostają <code>device_id = NULL</code> dzięki <code>ON DELETE SET NULL</code>) → <code>registry.unpair_device</code> wysyła <code>UNPAIRED</code> i zamyka połączenie → ESP <code>forget_identity()</code> kasuje dane z NVS i czeka na nowy claim.</li>
+  <li><strong>DELETE_ACCOUNT</strong>: <code>confirm_password</code> → lista ID urządzeń → <code>users.delete</code> (kaskada usuwa sesje, claimy, urządzenia, cele, kody) → <code>unpair_device</code> dla każdego → <code>kick_user</code> → <code>end_connection</code>. Aplikacja: <code>signOutLocally</code>.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="reference">7. Opis funkcji i metod</h2>
+<p>Każdy moduł można rozwinąć. Wyszukiwarka filtruje po nazwie i opisie (np. wpisz <code>epoch</code>, <code>WAKE</code>, <code>NVS</code>).</p>
+<input id="fn-search" type="search" placeholder="Szukaj funkcji, metody lub pojęcia…" autocomplete="off">
+<p><button type="button" id="expand-all">Rozwiń wszystko</button> <button type="button" id="collapse-all">Zwiń wszystko</button></p>
+
+<h3 id="ref-server">7.1 Serwer <span class="tag server">Python</span></h3>
+
+<details class="module"><summary><code>wol_server/__main__.py</code> – punkt wejścia</summary><div class="body">
+  <div class="fn"><code class="sig">main()</code><p>Wczytuje <code>server/.env</code>, buduje <code>Settings</code>, konfiguruje logowanie i uruchamia <code>asyncio.run(run(settings))</code>. Błędy konfiguracji, bazy i sieci zamienia na czytelny komunikat i kod wyjścia; <code>KeyboardInterrupt</code> kończy proces bez śladu stosu.</p></div>
+  <div class="fn"><code class="sig">async run(settings)</code><p>Składa cały proces: łączy bazę, migruje schemat, tworzy <code>Mailer</code> (opcjonalnie), <code>Services</code>, <code>WolServer</code>, uruchamia go i czeka w <code>serve_forever</code>. W blokach <code>finally</code> zamyka serwer, mailer i pulę bazy w odwrotnej kolejności.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/config.py</code> – konfiguracja</summary><div class="body">
+  <div class="fn"><code class="sig">class Settings</code><p>Niezmienny (<code>frozen</code>) zestaw ustawień: host, porty, ścieżki certyfikatu i klucza, URL bazy, pepper, rozmiar puli, poziom logów, ustawienia SMTP.</p></div>
+  <div class="fn"><code class="sig">Settings.from_env(env, base_dir)</code><p>Czyta i waliduje zmienne: wymagane <code>TOKEN_PEPPER</code> (≥ 32 znaki), <code>CLIENT_PORT</code>/<code>DEVICE_PORT</code> (różne, 1–65535), <code>DATABASE_URL</code> (schemat <code>postgresql://</code>), pliki TLS (ścieżki względne liczone od <code>server/</code>, muszą istnieć), <code>DB_POOL_SIZE</code> 1–100, <code>LOG_LEVEL</code>. Każdy błąd = <code>ConfigError</code> z nazwą zmiennej.</p></div>
+  <div class="fn"><code class="sig">smtp_settings(env)</code><p>Zwraca <code>SmtpSettings</code> albo <code>None</code>, gdy <code>SMTP_HOST</code> jest pusty. Dobiera domyślny port do trybu (<code>ssl</code> 465, <code>starttls</code> 587, <code>none</code> 25), odmawia wysłania hasła SMTP bez TLS i wymaga poprawnego adresu nadawcy.</p></div>
+  <div class="fn"><code class="sig">class ConfigError</code><p>Wyjątek konfiguracji; <code>main()</code> zamienia go na <code>sys.exit</code>.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/app.py</code> – serwer TCP/TLS i pętla połączenia</summary><div class="body">
+  <div class="fn"><code class="sig">class Timeouts</code><p>Limity czasu: handshake 5 s, logowanie 30 s, bezczynność klienta 300 s, PING do ESP co 30 s, ESP martwe po 90 s, sprzątanie co 3600 s. Wstrzykiwane, żeby testy mogły je skrócić.</p></div>
+  <div class="fn"><code class="sig">class ConnectionLimits</code><p>Limity połączeń liczone <em>osobno dla każdego portu</em>: 20/IP i 1000/port łącznie, z czego 5/IP i 256/port przed zalogowaniem.</p></div>
+  <div class="fn"><code class="sig">build_ssl_context(settings)</code><p>Kontekst TLS serwera: minimum TLS 1.2, wyłączona kompresja (CRIME), łańcuch certyfikatu i klucz z plików.</p></div>
+  <div class="fn"><code class="sig">WolServer.__init__(settings, services, dispatcher, *, timeouts, limits)</code><p>Zapamiętuje zależności i tworzy po dwa <code>ConnectionLimiter</code> na rolę (ogólny i „przed zalogowaniem”).</p></div>
+  <div class="fn"><code class="sig">WolServer.start()</code><p>Buduje kontekst TLS, otwiera nasłuchiwanie na obu portach (bez TLS – włączany w <code>_on_connect</code>), z limitem linii 4096 B, i uruchamia <code>_purge_loop</code>.</p></div>
+  <div class="fn"><code class="sig">WolServer.port(role)</code><p>Rzeczywisty port nasłuchu (przydatne w testach, gdzie port = 0 oznacza „dowolny wolny”).</p></div>
+  <div class="fn"><code class="sig">WolServer.serve_forever()</code><p>Czeka równolegle na oba serwery <code>asyncio</code>.</p></div>
+  <div class="fn"><code class="sig">WolServer.close()</code><p>Anuluje sprzątanie, zamyka nasłuchiwanie, zamyka wszystkie aktywne połączenia i czeka na ich zakończenie (do 5 s na serwer).</p></div>
+  <div class="fn"><code class="sig">WolServer._on_connect(role, reader, writer)</code><p>Wejście każdego połączenia TCP: sprawdza oba limity, wykonuje <code>start_tls</code> z timeoutem, przekazuje do <code>_run_connection</code>. Definiuje domknięcie <code>authenticated()</code>, które jednokrotnie zwalnia slot „przed zalogowaniem”. W <code>finally</code> zwalnia limity.</p></div>
+  <div class="fn"><code class="sig">WolServer._run_connection(role, conn, on_authenticated)</code><p>Tworzy <code>Context</code> i <code>Session</code>, uruchamia <code>_serve</code>, loguje błędy sieciowe na poziomie debug, a nieoczekiwane z pełnym śladem; zawsze woła <code>_cleanup</code>.</p></div>
+  <div class="fn"><code class="sig">WolServer._serve(ctx, on_authenticated)</code><p>Główna pętla czytania ramek: timeouty, obsługa złych i za długich ramek, licznik złych ramek przed logowaniem (max 3), wywołanie dispatchera, wysłanie odpowiedzi. Termin logowania liczony od nawiązania połączenia, więc wysyłanie śmieci go nie przedłuża.</p></div>
+  <div class="fn"><code class="sig">WolServer._read_timeout(session, auth_deadline)</code><p>Wylicza czas oczekiwania na następną ramkę zależnie od roli i stanu logowania.</p></div>
+  <div class="fn"><code class="sig">WolServer._on_idle(ctx, idle_seconds)</code><p>Po timeoucie: zalogowanemu ESP wysyła <code>PING</code> (zwraca <code>True</code> = kontynuuj), o ile cisza &lt; 90 s. Wszystko inne – <code>False</code> = rozłącz.</p></div>
+  <div class="fn"><code class="sig">WolServer._cleanup(ctx)</code><p>Wyrejestrowuje połączenie z <code>Registry</code> (ESP: <code>detach_device</code> + zapis <code>last_seen_at</code>; klient: <code>remove_client</code>) i zamyka gniazdo.</p></div>
+  <div class="fn"><code class="sig">WolServer._purge_loop()</code><p>Co godzinę usuwa z bazy wygasłe sesje, claimy i kody resetu; błędy tylko loguje.</p></div>
+  <div class="fn"><code class="sig">_abort(writer)</code><p>Szybkie zamknięcie odrzuconego połączenia z ograniczonym czasem oczekiwania.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/transport.py</code> – połączenie liniowe</summary><div class="body">
+  <div class="fn"><code class="sig">class Connection</code><p>Opakowuje parę <code>StreamReader</code>/<code>StreamWriter</code> (już po TLS) i adres IP klienta (<code>peer</code>).</p></div>
+  <div class="fn"><code class="sig">Connection.closed</code><p>Czy writer jest zamykany/zamknięty.</p></div>
+  <div class="fn"><code class="sig">Connection.read_message(timeout)</code><p>Czyta jedną linię z limitem czasu. Linia dłuższa niż limit strumienia → <code>FrameTooLong</code>; niepełna linia (EOF) → <code>None</code>; w pozostałych przypadkach <code>Message.decode</code> (może rzucić <code>ProtocolError</code>).</p></div>
+  <div class="fn"><code class="sig">Connection.send(message)</code><p>Koduje i zapisuje wiadomość, czeka na <code>drain()</code> maks. 10 s – klient, który przestał czytać, nie zablokuje serwera.</p></div>
+  <div class="fn"><code class="sig">Connection.close() / wait_closed()</code><p>Zamyka gniazdo; oczekiwanie ograniczone do 5 s i odporne na wyjątki.</p></div>
+  <div class="fn"><code class="sig">class FrameTooLong</code><p>Sygnał przekroczenia 4096 B w jednej linii.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/protocol.py</code> – format ramek</summary><div class="body">
+  <div class="fn"><code class="sig">MAX_LINE_BYTES = 4096</code><p>Maksymalna długość linii przyjmowanej przez serwer (i przez ESP). Odpowiedzi serwera do aplikacji nie mają tego limitu.</p></div>
+  <div class="fn"><code class="sig">class Cmd(StrEnum)</code><p>Wszystkie nazwy komend (klienta, ESP i odpowiedzi <code>ACK</code>/<code>NACK</code>/<code>PING</code>/<code>PONG</code>).</p></div>
+  <div class="fn"><code class="sig">class Err(StrEnum)</code><p>Wszystkie kody błędów wysyłane w <code>NACK</code>.</p></div>
+  <div class="fn"><code class="sig">Message(command, args)</code><p>Niezmienna wiadomość: nazwa komendy i krotka argumentów.</p></div>
+  <div class="fn"><code class="sig">Message.encode()</code><p>JSON bez spacji + <code>\n</code>. <code>json.dumps</code> domyślnie zamienia znaki spoza ASCII na <code>\uXXXX</code>, więc serwer wysyła wyłącznie ASCII.</p></div>
+  <div class="fn"><code class="sig">Message.decode(line)</code><p>Parsuje JSON; wymaga obiektu z dokładnie jednym kluczem, którego wartością jest tablica. <code>RecursionError</code> (głęboko zagnieżdżony JSON) też daje <code>ProtocolError</code>.</p></div>
+  <div class="fn"><code class="sig">ack(*args) / nack(code)</code><p>Skróty do budowy odpowiedzi.</p></div>
+  <div class="fn"><code class="sig">class ProtocolError</code><p>Linia nie jest poprawną wiadomością.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/session.py</code> – stan połączenia</summary><div class="body">
+  <div class="fn"><code class="sig">class Role(Enum)</code><p><code>CLIENT</code> albo <code>DEVICE</code> – wyznaczana przez port, na który przyszło połączenie.</p></div>
+  <div class="fn"><code class="sig">class Session</code><p>Stan jednego połączenia: rola, IP, <code>user_id</code>, <code>token_hash</code> (klient), <code>device_id</code> (ESP), flaga <code>close_requested</code>, <code>verified_at</code> (czas ostatniego sprawdzenia sesji w bazie).</p></div>
+  <div class="fn"><code class="sig">Session.authenticated</code><p>Dla ESP: czy jest <code>device_id</code>; dla klienta: czy jest <code>user_id</code>.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/context.py</code> – zależności</summary><div class="body">
+  <div class="fn"><code class="sig">class Services</code><p>Zależności całego procesu: <code>db</code>, repozytoria (<code>users</code>, <code>sessions</code>, <code>resets</code>, <code>claims</code>, <code>devices</code>, <code>targets</code>), <code>security</code>, <code>registry</code>, <code>limiter</code>, <code>mailer</code>.</p></div>
+  <div class="fn"><code class="sig">Services.create(db, security, limiter=None, mailer=None)</code><p>Fabryka tworząca wszystkie repozytoria na jednej bazie oraz nowy <code>Registry</code> i <code>RateLimiter</code> (chyba że podano własny – testy).</p></div>
+  <div class="fn"><code class="sig">class Context</code><p><code>services</code> + <code>session</code> + <code>conn</code>. Jedyny argument „infrastrukturalny” handlerów.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/dispatcher.py</code> – routing komend</summary><div class="body">
+  <div class="fn"><code class="sig">class Route</code><p>Handler + schemat typów argumentów + wymóg logowania (<code>True</code>/<code>False</code>/<code>None</code>) + nazwa limitu per IP.</p></div>
+  <div class="fn"><code class="sig">class Router(role)</code><p>Zbiera trasy jednej roli w jednym module handlerów.</p></div>
+  <div class="fn"><code class="sig">Router.route(command, *, schema=(), auth=True, rate_limit=None)</code><p>Dekorator rejestrujący handler. Domyślnie komenda wymaga zalogowania i nie ma argumentów. Duplikat → <code>ValueError</code> przy imporcie.</p></div>
+  <div class="fn"><code class="sig">class Dispatcher(routers)</code><p>Łączy routery w słownik <code>(rola, komenda) → Route</code>, pilnując unikalności.</p></div>
+  <div class="fn"><code class="sig">Dispatcher.dispatch(ctx, message)</code><p>Pełny potok z <a href="#lc-dispatch">5.3</a>: trasa, stan logowania, schemat, limit, ważność sesji, handler, zamiana wyjątków na <code>NACK</code>.</p></div>
+  <div class="fn"><code class="sig">_session_still_valid(ctx)</code><p>Jeśli od ostatniego sprawdzenia minęło ≥ 60 s, pyta bazę, czy token sesji istnieje, i odświeża <code>verified_at</code>. Dla ESP (brak <code>token_hash</code>) zawsze <code>True</code>.</p></div>
+  <div class="fn"><code class="sig">_matches(schema, args)</code><p>Dokładne dopasowanie liczby i typów argumentów (<code>type(x) is T</code>, bez podklas).</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/errors.py</code></summary><div class="body">
+  <div class="fn"><code class="sig">class CommandError(code)</code><p>Przerywa bieżącą komendę; klient dostaje <code>NACK [code]</code>. Rzucany z handlerów, walidacji, repozytoriów i limitera.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/registry.py</code> – połączenia na żywo</summary><div class="body">
+  <div class="fn"><code class="sig">class DeviceLink(device_id, user_id, conn)</code><p>Zalogowane połączenie ESP z mapą oczekujących żądań (<code>request_id → Future</code>) i blokadą <code>rotation_lock</code>.</p></div>
+  <div class="fn"><code class="sig">DeviceLink.request(command, *args, timeout)</code><p>Losuje <code>request_id</code> (8 B hex), wysyła <code>command [request_id, *args]</code> i czeka na potwierdzenie. Zwraca <code>True</code> po potwierdzeniu, <code>False</code> przy timeoucie lub błędzie gniazda. Zawsze sprząta wpis z mapy.</p></div>
+  <div class="fn"><code class="sig">DeviceLink.resolve(request_id)</code><p>Spełnia Future dla danego ID; <code>False</code>, gdy ID nieznane lub już obsłużone (np. spóźnione ACK).</p></div>
+  <div class="fn"><code class="sig">DeviceLink.close()</code><p>Zamyka gniazdo i kończy wszystkie oczekujące żądania wyjątkiem.</p></div>
+  <div class="fn"><code class="sig">Registry.attach_device(link)</code><p>Rejestruje urządzenie; jeśli było już połączone, zamyka stare połączenie (nowsze wygrywa).</p></div>
+  <div class="fn"><code class="sig">Registry.detach_device(device_id, conn)</code><p>Usuwa wpis tylko wtedy, gdy dotyczy <em>tego samego</em> połączenia – sprzątanie starego połączenia nie wyrejestruje nowego.</p></div>
+  <div class="fn"><code class="sig">Registry.device(id) / is_online(id)</code><p>Odczyt aktywnego łącza / czy urządzenie jest online.</p></div>
+  <div class="fn"><code class="sig">Registry.unpair_device(device_id)</code><p>Wyrejestrowuje urządzenie, wysyła mu <code>UNPAIRED</code> i zamyka połączenie.</p></div>
+  <div class="fn"><code class="sig">Registry.add_client / remove_client(user_id, conn)</code><p>Zbiór połączeń aplikacji danego użytkownika.</p></div>
+  <div class="fn"><code class="sig">Registry.kick_user(user_id, *, keep=None)</code><p>Zamyka wszystkie połączenia aplikacji użytkownika poza <code>keep</code>. Używane po unieważnieniu sesji.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/security.py</code> – hasła i tokeny</summary><div class="body">
+  <div class="fn"><code class="sig">Security(pepper, hasher=None)</code><p>Trzyma pepper, <code>PasswordHasher</code> Argon2, gotowy „dummy hash” i semafor ograniczający do 4 równoległych obliczeń Argon2.</p></div>
+  <div class="fn"><code class="sig">hash_password(password)</code><p>Argon2 w wątku (<code>asyncio.to_thread</code>), żeby nie blokować pętli zdarzeń.</p></div>
+  <div class="fn"><code class="sig">verify_password(stored_hash, password)</code><p>Weryfikuje hasło; gdy <code>stored_hash</code> jest <code>None</code> (brak konta), liczy weryfikację z atrapą i zwraca <code>False</code> – taki sam czas odpowiedzi.</p></div>
+  <div class="fn"><code class="sig">needs_rehash(stored_hash)</code><p>Czy hash ma nieaktualne parametry.</p></div>
+  <div class="fn"><code class="sig">token_hash(token)</code><p>HMAC-SHA256(pepper, token) w hex. Tak przechowywane są tokeny sesji, claimy, sekrety urządzeń i kody resetu.</p></div>
+  <div class="fn"><code class="sig">new_token(nbytes=32)</code><p>Losowy token URL-safe (<code>secrets.token_urlsafe</code>).</p></div>
+  <div class="fn"><code class="sig">new_reset_code()</code><p>10 znaków z alfabetu <code>0-9A-Z</code> bez I, L, O, U (~50 bitów).</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/validation.py</code> – reguły pól</summary><div class="body">
+  <div class="fn"><code class="sig">is_username / username(value)</code><p><code>[A-Za-z0-9_.-]{3,32}</code>; inaczej <code>invalid_name</code>.</p></div>
+  <div class="fn"><code class="sig">email(value)</code><p>Przycina spacje, max 254 znaki, prosty wzorzec <code>lokal@domena.tld</code>; inaczej <code>invalid_email</code>.</p></div>
+  <div class="fn"><code class="sig">password(value)</code><p>8–128 znaków i nie same spacje; inaczej <code>weak_password</code>.</p></div>
+  <div class="fn"><code class="sig">label(value)</code><p>Nazwa urządzenia/celu: normalizacja Unicode NFC, przycięcie, 1–64 znaki, bez znaków kategorii „C” (sterujące, formatujące itd.); inaczej <code>invalid_label</code>.</p></div>
+  <div class="fn"><code class="sig">mac(value)</code><p>Akceptuje separatory <code>: - .</code> lub ich brak, zwraca <code>AA:BB:CC:DD:EE:FF</code>. Odrzuca adresy z bitem multicast (w tym broadcast).</p></div>
+  <div class="fn"><code class="sig">record_id(value)</code><p>ID spoza zakresu <code>bigint</code> → <code>not_found</code> (zamiast błędu bazy).</p></div>
+  <div class="fn"><code class="sig">is_token / token(value)</code><p><code>[A-Za-z0-9_-]{16,128}</code>; inaczej <code>invalid_token</code>.</p></div>
+  <div class="fn"><code class="sig">reset_code(value)</code><p>Usuwa spacje i myślniki, zamienia na wielkie litery, O→0, I/L→1, sprawdza 10 znaków alfabetu.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/ratelimit.py</code> – limity</summary><div class="body">
+  <div class="fn"><code class="sig">Rule(capacity, refill_seconds)</code><p>Kubełek tokenów: pozwala na serię <code>capacity</code> żądań, potem 1 na <code>refill_seconds</code>.</p></div>
+  <div class="fn"><code class="sig">DEFAULT_RULES</code><p>Wszystkie limity (patrz <a href="#timeouts">rozdział 10</a>).</p></div>
+  <div class="fn"><code class="sig">RateLimiter.allow(action, key)</code><p>Pobiera token, jeśli jest.</p></div>
+  <div class="fn"><code class="sig">RateLimiter.require(action, key)</code><p>Jak <code>allow</code>, ale brak tokenu → <code>CommandError(rate_limited)</code>.</p></div>
+  <div class="fn"><code class="sig">RateLimiter.peek / consume / refund</code><p>Sprawdzenie bez pobrania / pobranie / zwrot tokenu (maksymalnie do pojemności). Pobranie przed operacją i zwrot po sukcesie pozwalają liczyć tylko porażki (logowanie) bez wyścigu między równoległymi próbami.</p></div>
+  <div class="fn"><code class="sig">RateLimiter._tokens / _prune</code><p>Wyliczenie aktualnej liczby tokenów z czasu; przy &gt; 50 000 kubełków usuwa te w pełni odnowione (nie niosą informacji).</p></div>
+  <div class="fn"><code class="sig">ConnectionLimiter(per_ip, total)</code><p>Licznik jednoczesnych połączeń: <code>acquire(ip)</code> / <code>release(ip)</code>.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/mailer.py</code> – e-mail</summary><div class="body">
+  <div class="fn"><code class="sig">SmtpSettings</code><p>Host, port, tryb (<code>ssl</code>/<code>starttls</code>/<code>none</code>), login, hasło, nadawca.</p></div>
+  <div class="fn"><code class="sig">Mailer.send_later(to, subject, body)</code><p>Tworzy zadanie w tle i trzyma do niego referencję; błędy tylko loguje – nigdy nie trafiają do klienta.</p></div>
+  <div class="fn"><code class="sig">Mailer.close()</code><p>Przy zamykaniu czeka do 20 s na zadania w kolejce.</p></div>
+  <div class="fn"><code class="sig">Mailer._send / _deliver</code><p>Buduje <code>EmailMessage</code> (From, To, Subject, Message-ID) i wysyła przez <code>smtplib</code> w wątku, z weryfikacją certyfikatu SMTP.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/db/schema.py</code> – migracje</summary><div class="body">
+  <div class="fn"><code class="sig">MIGRATIONS</code><p>Lista skryptów SQL: v1 tabele <code>users</code>, <code>sessions</code>, <code>claims</code>, <code>devices</code>, <code>targets</code>; v2 <code>password_resets</code>; v3 kolumna <code>users.session_epoch</code>.</p></div>
+  <div class="fn"><code class="sig">migrate(conn)</code><p>W transakcji wywołującego: blokada doradcza, tabela <code>schema_migrations</code>, zastosowanie brakujących skryptów po kolei. Baza nowsza niż kod → <code>SchemaError</code>.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol_server/db/repo.py</code> – dostęp do bazy</summary><div class="body">
+  <h4>Infrastruktura</h4>
+  <div class="fn"><code class="sig">Database(dsn, *, schema=None, max_connections=10)</code><p>Pula <code>asyncpg</code>; opcjonalny <code>search_path</code> (testy używają osobnego schematu na każdy test).</p></div>
+  <div class="fn"><code class="sig">Database.connect / close / pool / transaction() / migrate()</code><p>Otwarcie i zamknięcie puli, dostęp do niej, menedżer kontekstu „połączenie + transakcja”, migracje.</p></div>
+  <div class="fn"><code class="sig">_affected / _require_row</code><p>Liczba wierszy z statusu (<code>UPDATE 1</code>); 0 → <code>not_found</code>.</p></div>
+  <div class="fn"><code class="sig">_user / _device / _target</code><p>Mapowanie rekordów na dataclassy <code>User</code>, <code>Device</code>, <code>Target</code>.</p></div>
+  <div class="fn"><code class="sig">_lock_user(conn, user_id)</code><p><code>SELECT ... FOR UPDATE</code> na użytkowniku – szereguje sprawdzanie limitów (liczba urządzeń/celów) z równoległymi wstawieniami.</p></div>
+  <div class="fn"><code class="sig">_owns_device(conn, user_id, device_id)</code><p>Czy urządzenie należy do użytkownika.</p></div>
+  <div class="fn"><code class="sig">_insert_session(conn, user_id, token_hash, ttl)</code><p>Wstawia sesję i usuwa najdawniej używane ponad limit 20 na użytkownika.</p></div>
+  <div class="fn"><code class="sig">_revoke_credentials(conn, user_id)</code><p>Zwiększa <code>session_epoch</code> i usuwa wszystkie sesje, kody resetu i claimy użytkownika. Zwraca nową epokę.</p></div>
+  <h4>UsersRepo</h4>
+  <div class="fn"><code class="sig">register(name, email, password_hash, token_hash, ttl)</code><p>Użytkownik + pierwsza sesja w jednej transakcji (nie ma konta bez sesji ani odwrotnie); konflikt unikalności → <code>account_exists</code>.</p></div>
+  <div class="fn"><code class="sig">by_name / by_email / by_id</code><p>Wyszukiwanie (nazwa i e-mail bez rozróżniania wielkości liter).</p></div>
+  <div class="fn"><code class="sig">rehash_password(user_id, old_hash, new_hash)</code><p>Aktualizuje hash tylko, jeśli nadal jest stary (brak nadpisania równoległej zmiany hasła).</p></div>
+  <div class="fn"><code class="sig">change_password(user_id, hash)</code><p>Nowy hash + <code>_revoke_credentials</code> w jednej transakcji; zwraca nową epokę.</p></div>
+  <div class="fn"><code class="sig">revoke_all(user_id)</code><p>Samo <code>_revoke_credentials</code> (LOGOUT_ALL).</p></div>
+  <div class="fn"><code class="sig">rename(user_id, new_name) / delete(user_id)</code><p>Zmiana nazwy (<code>name_taken</code> przy konflikcie) / usunięcie konta w jednej transakcji z jego urządzeniami (reszta kaskadą w bazie); zwraca id usuniętych urządzeń.</p></div>
+  <h4>SessionsRepo</h4>
+  <div class="fn"><code class="sig">create(user_id, token_hash, ttl, *, epoch)</code><p>Czyta epokę z <code>FOR SHARE</code> (czeka na trwające unieważnienie) i tworzy sesję tylko, gdy epoka jest ta sama, którą odczytano przed sprawdzeniem hasła.</p></div>
+  <div class="fn"><code class="sig">exists(token_hash)</code><p>Czy sesja istnieje i nie wygasła.</p></div>
+  <div class="fn"><code class="sig">refresh(token_hash, ttl)</code><p>Przedłuża ważną sesję (przesuwne 30 dni) i zwraca <code>user_id</code>.</p></div>
+  <div class="fn"><code class="sig">delete / purge_expired</code><p>Usunięcie jednej sesji / wszystkich wygasłych.</p></div>
+  <h4>PasswordResetsRepo</h4>
+  <div class="fn"><code class="sig">create(user_id, code_hash, ttl)</code><p>Upsert: jeden kod na użytkownika, nowy zastępuje stary i zeruje licznik prób.</p></div>
+  <div class="fn"><code class="sig">consume(user_id, code_hash, max_attempts)</code><p>Z blokadą wiersza: dobry kod (porównanie w stałym czasie) jest usuwany i zwraca <code>True</code>; zły zwiększa licznik, a przy limicie kasuje kod.</p></div>
+  <h4>ClaimsRepo</h4>
+  <div class="fn"><code class="sig">create(user_id, token_hash, device_name, ttl)</code><p>Z blokadą użytkownika: sprawdza limit 10 urządzeń, usuwa poprzedni claim, wstawia nowy.</p></div>
+  <h4>DevicesRepo</h4>
+  <div class="fn"><code class="sig">redeem_claim(claim_hash, device_id, secret_hash)</code><p><code>DELETE ... RETURNING</code> na claimie (atomowa jednorazowość) i utworzenie urządzenia dla właściciela claimu.</p></div>
+  <div class="fn"><code class="sig">authenticate(device_id, secret_hash)</code><p>Porównuje z bieżącym i oczekującym sekretem; jeśli pasuje oczekujący, awansuje go na bieżący, a jeśli pasuje bieżący, kasuje oczekujący (urządzenie go nie zapisało). Aktualizuje <code>last_seen_at</code>.</p></div>
+  <div class="fn"><code class="sig">list / rename / delete / owns / touch</code><p>Operacje CRUD zawsze zawężone do <code>user_id</code>; <code>touch</code> zapisuje <code>last_seen_at</code>.</p></div>
+  <div class="fn"><code class="sig">stage_secret / promote_secret</code><p>Dwie fazy rotacji sekretu: zapis w <code>next_secret_hash</code>, potem przeniesienie do <code>secret_hash</code> (sukces także, gdy już przeniesiony).</p></div>
+  <h4>TargetsRepo</h4>
+  <div class="fn"><code class="sig">add(user_id, device_id, mac, name)</code><p>Z blokadą użytkownika: własność urządzenia, limit 64 celów, unikalność MAC (<code>duplicate</code>).</p></div>
+  <div class="fn"><code class="sig">get / list / rename / assign / remove</code><p>CRUD celów; <code>assign</code> sprawdza, czy nowe urządzenie należy do użytkownika.</p></div>
+</div></details>
+
+<details class="module"><summary><code>handlers/__init__.py</code></summary><div class="body">
+  <div class="fn"><code class="sig">build_dispatcher()</code><p>Tworzy <code>Dispatcher</code> z routerów: <code>auth</code>, <code>password_reset</code>, <code>account</code>, <code>devices</code>, <code>targets</code>, <code>esp</code>.</p></div>
+</div></details>
+
+<details class="module"><summary><code>handlers/auth.py</code> – przed zalogowaniem</summary><div class="body">
+  <div class="fn"><code class="sig">start_session(ctx, user_id, epoch)</code><p>Nowy token, zapis sesji z kontrolą epoki (w razie unieważnienia – <code>invalid_credentials</code>), potem <code>bind_session</code>. Zwraca jawny token.</p></div>
+  <div class="fn"><code class="sig">bind_session(ctx, user_id, token_hash)</code><p>Ustawia pola sesji, dodaje połączenie do rejestru i <em>po</em> dodaniu sprawdza, czy sesja wciąż istnieje (unieważnienie sprzed <code>add_client</code> nie mogło tego połączenia rozłączyć).</p></div>
+  <div class="fn"><code class="sig">unbind_session(ctx)</code><p>Odwrotność: usuwa z rejestru i czyści pola sesji.</p></div>
+  <div class="fn"><code class="sig">ping</code> <span class="tag client">PING</span><p>Odpowiada <code>PONG</code> (tylko zalogowanym).</p></div>
+  <div class="fn"><code class="sig">register</code> <span class="tag client">REGISTER</span><p>Walidacja, limit per e-mail, hash, <code>users.register</code>, <code>bind_session</code> → <code>ACK [token, name]</code>.</p></div>
+  <div class="fn"><code class="sig">login</code> <span class="tag client">LOGIN</span><p>Opisane w <a href="#flow-register">6.1</a>: podwójny limit porażek, atrapa hasha, rehash, epoka.</p></div>
+  <div class="fn"><code class="sig">resume</code> <span class="tag client">RESUME</span><p>Walidacja formatu tokenu, <code>sessions.refresh</code>, <code>bind_session</code> → <code>ACK [name]</code>.</p></div>
+</div></details>
+
+<details class="module"><summary><code>handlers/account.py</code> – konto</summary><div class="body">
+  <div class="fn"><code class="sig">confirm_password(ctx, password)</code><p>Limit 5/min na użytkownika, weryfikacja hasła; zła → <code>invalid_credentials</code>. Chroni operacje wrażliwe przed kimś, kto przejął odblokowany telefon.</p></div>
+  <div class="fn"><code class="sig">end_connection(ctx)</code><p><code>unbind_session</code> + <code>close_requested = True</code> (odpowiedź zostanie wysłana, potem rozłączenie).</p></div>
+  <div class="fn"><code class="sig">logout</code> / <code class="sig">logout_all</code><p>Usunięcie jednej sesji / wszystkich poświadczeń + <code>kick_user</code>.</p></div>
+  <div class="fn"><code class="sig">change_password</code><p>Walidacja nowego, potwierdzenie starego, zmiana z unieważnieniem, <code>kick_user(keep=ctx.conn)</code>, nowa sesja dla bieżącego połączenia.</p></div>
+  <div class="fn"><code class="sig">change_name</code><p>Walidacja nazwy, potwierdzenie hasłem, <code>users.rename</code>.</p></div>
+  <div class="fn"><code class="sig">delete_account</code><p>Potwierdzenie, usunięcie konta razem z urządzeniami, <code>UNPAIRED</code> do każdego ESP, rozłączenie wszystkich aplikacji.</p></div>
+</div></details>
+
+<details class="module"><summary><code>handlers/password_reset.py</code> – odzyskiwanie hasła</summary><div class="body">
+  <div class="fn"><code class="sig">format_code(code)</code><p>Wstawia myślnik w połowie kodu (<code>7K3QD-9XW2M</code>) dla czytelności w mailu.</p></div>
+  <div class="fn"><code class="sig">request_password_reset</code><p>Zawsze <code>ACK []</code> (poza brakiem SMTP i złym formatem e-maila), ciche limity, kod w tle przez <code>Mailer</code>. Treść maila dwujęzyczna.</p></div>
+  <div class="fn"><code class="sig">reset_password</code><p>Walidacje, limit per (e-mail, IP), <code>resets.consume</code>, zmiana hasła z unieważnieniem, <code>kick_user</code>, nowa sesja → <code>ACK [token, name]</code>.</p></div>
+</div></details>
+
+<details class="module"><summary><code>handlers/devices.py</code> – urządzenia (komendy aplikacji)</summary><div class="body">
+  <div class="fn"><code class="sig">create_claim</code><p>Token 16 B, zapis HMAC z nazwą urządzenia, TTL 600 s → <code>ACK [token, 600]</code>.</p></div>
+  <div class="fn"><code class="sig">list_devices</code><p>Urządzenia z bazy + status online z <code>Registry</code> + <code>last_seen_at</code> jako znacznik Unix.</p></div>
+  <div class="fn"><code class="sig">rename_device / remove_device</code><p>Zmiana nazwy / usunięcie z bazy i <code>unpair_device</code>.</p></div>
+  <div class="fn"><code class="sig">rotate_device_secret</code><p>Dwufazowa rotacja pod <code>rotation_lock</code> (<a href="#flow-rotate">6.4</a>). Rozróżnia <code>not_found</code> (cudze/nieistniejące) od <code>device_offline</code>.</p></div>
+</div></details>
+
+<details class="module"><summary><code>handlers/targets.py</code> – komputery do budzenia</summary><div class="body">
+  <div class="fn"><code class="sig">serialize(target)</code><p>Słownik <code>{id, device_id, mac, name}</code> wysyłany do aplikacji.</p></div>
+  <div class="fn"><code class="sig">add_target / list_targets / rename_target / assign_target / remove_target</code><p>CRUD z walidacją MAC, nazwy i ID.</p></div>
+  <div class="fn"><code class="sig">wake_up</code><p>Limit 10 na serię, potem 1/6 s na użytkownika; sprawdzenia <code>not_found</code> → <code>no_device</code> → <code>device_offline</code>; <code>link.request(WAKE_UP, mac, 5 s)</code>; brak potwierdzenia → <code>device_unreachable</code>.</p></div>
+</div></details>
+
+<details class="module"><summary><code>handlers/esp.py</code> – komendy urządzeń</summary><div class="body">
+  <div class="fn"><code class="sig">attach(ctx, device)</code><p>Ustawia <code>device_id</code>/<code>user_id</code> w sesji i rejestruje <code>DeviceLink</code>.</p></div>
+  <div class="fn"><code class="sig">device_claim</code><p>Realizacja claimu: nowe <code>device_id</code> (12 B) i sekret (32 B), <code>redeem_claim</code>, <code>attach</code> → <code>ACK [device_id, secret]</code>. Jawny sekret istnieje tylko w tej odpowiedzi.</p></div>
+  <div class="fn"><code class="sig">device_auth</code><p>Sprawdza format obu wartości (źle sformatowane = od razu <code>invalid_credentials</code>, bez zapytania), <code>devices.authenticate</code>, <code>attach</code>.</p></div>
+  <div class="fn"><code class="sig">ping / pong</code><p><code>PING</code> → <code>PONG</code>; <code>PONG</code> → brak odpowiedzi (tylko odświeża aktywność).</p></div>
+  <div class="fn"><code class="sig">acknowledge(ctx, request_id)</code> (<code>WAKE_ACK</code> i <code>SECRET_ACK</code>)<p>Spełnia oczekujące żądanie w <code>DeviceLink</code>, jeśli potwierdzenie przyszło z aktualnego połączenia urządzenia. Nigdy nie odpowiada.</p></div>
+</div></details>
+
+<h3 id="ref-client">7.2 Aplikacja <span class="tag client">TypeScript</span></h3>
+
+<details class="module"><summary><code>src/api/protocol.ts</code></summary><div class="body">
+  <div class="fn"><code class="sig">Cmd, ErrCode, MAX_INBOUND_LINE_BYTES</code><p>Lustro <code>protocol.py</code>. <code>MAX_INBOUND_LINE_BYTES</code> (64 KiB) to limit linii odbieranej od serwera. <code>ErrCode</code> zawiera dodatkowo kody lokalne: <code>connection_failed</code>, <code>connection_lost</code>, <code>timeout</code>, <code>protocol_error</code>.</p></div>
+  <div class="fn"><code class="sig">encode(command, args)</code><p><code>JSON.stringify({[command]: args}) + "\n"</code>.</p></div>
+  <div class="fn"><code class="sig">decode(line)</code><p>Zwraca <code>{command, args}</code> albo <code>null</code> dla czegokolwiek, co nie jest obiektem z jednym kluczem i tablicą.</p></div>
+</div></details>
+
+<details class="module"><summary><code>src/api/errors.ts</code></summary><div class="body">
+  <div class="fn"><code class="sig">class WolError(code)</code><p>Błąd z kodem protokołu; <code>message</code> to komunikat w języku telefonu (z <code>i18n.ts</code>).</p></div>
+  <div class="fn"><code class="sig">errorMessage(code)</code><p>Kod → tekst z <code>t.errors</code> w <code>i18n.ts</code>; nieznany kod → <code>Błąd: kod</code> (po angielsku <code>Error: kod</code>).</p></div>
+  <div class="fn"><code class="sig">describeError(error)</code><p>Tekst do pokazania użytkownikowi dla dowolnego wyjątku.</p></div>
+</div></details>
+
+<details class="module"><summary><code>src/api/connection.ts</code> – <code>WolConnection</code></summary><div class="body">
+  <div class="fn"><code class="sig">constructor(onClosed)</code><p>Callback wywoływany, gdy <em>nawiązane</em> połączenie zerwie się samo.</p></div>
+  <div class="fn"><code class="sig">connect(host, port)</code><p>Zamyka poprzednie, otwiera <code>connectTLS</code> z przypiętym CA, timeout 10 s, rejestruje obsługę <code>data</code>/<code>error</code>/<code>close</code>. Każdy handler sprawdza <code>this.socket === socket</code>, więc zdarzenia starego gniazda są ignorowane. Po połączeniu uruchamia <code>PING</code> co 60 s.</p></div>
+  <div class="fn"><code class="sig">request(command, args, timeoutMs = 15000)</code><p>Wysyła ramkę i dopisuje oczekiwanie na koniec kolejki. Timeout <strong>zamyka połączenie</strong> (<code>fail("timeout")</code>), bo spóźniona odpowiedź zostałaby przypisana do następnego żądania.</p></div>
+  <div class="fn"><code class="sig">close()</code><p>Zamknięcie z inicjatywy aplikacji (bez <code>onClosed</code>).</p></div>
+  <div class="fn"><code class="sig">onData(chunk) / onLine(line)</code><p>Buforowanie i cięcie po <code>\n</code>; przepełnienie bufora ponad 64 KiB → <code>protocol_error</code>. Każda linia rozstrzyga pierwsze oczekujące żądanie (ACK/PONG → resolve, NACK → reject z kodem).</p></div>
+  <div class="fn"><code class="sig">fail(code)</code><p>Zerwanie nawiązanego połączenia: <code>shutdown</code> + <code>onClosed</code>.</p></div>
+  <div class="fn"><code class="sig">shutdown(code)</code><p>Jedyna ścieżka zamknięcia: czyści timery, niszczy gniazdo, odrzuca łączenie (<code>connection_failed</code>) i wszystkie oczekujące żądania (<code>code</code>).</p></div>
+</div></details>
+
+<details class="module"><summary><code>src/api/client.ts</code> – <code>WolApi</code> (singleton <code>api</code>)</summary><div class="body">
+  <div class="fn"><code class="sig">Device, Target, Claim, AuthResult, ServerAddress</code><p>Typy danych domenowych.</p></div>
+  <div class="fn"><code class="sig">isRecord, isString, isNumber, isDevice, isTarget, one, list</code><p>Strażnicy typów walidujący odpowiedzi serwera w czasie działania; niezgodność → <code>WolError("protocol_error")</code>.</p></div>
+  <div class="fn"><code class="sig">onSessionInvalid</code><p>Callback ustawiany przez <code>SessionProvider</code>.</p></div>
+  <div class="fn"><code class="sig">configure(server, token)</code><p>Ustawia adres i token; przy zmianie rozłącza.</p></div>
+  <div class="fn"><code class="sig">disconnect()</code><p>Zeruje obietnicę sesji i zamyka połączenie.</p></div>
+  <div class="fn"><code class="sig">register / login / resetPassword</code><p>Przez <code>authenticate</code>: nowe, niezalogowane połączenie, zapamiętanie tokenu i nazwy.</p></div>
+  <div class="fn"><code class="sig">connect()</code><p>= <code>ensureSession()</code>, zwraca nazwę użytkownika.</p></div>
+  <div class="fn"><code class="sig">logout / logoutAll / deleteAccount</code><p>Przez <code>forget</code>: wywołanie, a po jego powodzeniu wyczyszczenie tokenu i rozłączenie. Przy błędzie (np. złe hasło przy <code>DELETE_ACCOUNT</code>) sesja zostaje.</p></div>
+  <div class="fn"><code class="sig">changePassword / changeName</code><p>Zwracają nowy token / nową nazwę.</p></div>
+  <div class="fn"><code class="sig">requestPasswordReset(email)</code><p>Na połączeniu pobocznym (<code>withSideConnection</code>), nie ruszając głównego.</p></div>
+  <div class="fn"><code class="sig">revokeToken(token)</code><p>Na połączeniu pobocznym: <code>RESUME</code> starym tokenem i <code>LOGOUT</code>; token już nieważny = sukces.</p></div>
+  <div class="fn"><code class="sig">createClaim, listDevices, renameDevice, removeDevice, rotateDeviceSecret</code><p>Urządzenia; rotacja z timeoutem 20 s.</p></div>
+  <div class="fn"><code class="sig">addTarget, listTargets, renameTarget, assignTarget, removeTarget, wakeUp</code><p>Cele; <code>wakeUp</code> z timeoutem 20 s (serwer czeka na ESP do 5 s).</p></div>
+  <div class="fn"><code class="sig">call(command, args, timeoutMs)</code><p>Wspólna ścieżka komend po zalogowaniu: <code>ensureSession</code> → <code>request</code>; <code>invalid_token</code> → <code>sessionRevoked</code>.</p></div>
+  <div class="fn"><code class="sig">sessionRevoked()</code><p>Czyści token, rozłącza, woła <code>onSessionInvalid</code>.</p></div>
+  <div class="fn"><code class="sig">authenticate / forget / withSideConnection</code><p>Opisane wyżej wzorce połączeń.</p></div>
+  <div class="fn"><code class="sig">ensureSession / openSession / open</code><p>Memoizacja obietnicy sesji (jedno <code>RESUME</code> dla równoległych wywołań; nieudana obietnica jest zapominana), połączenie + <code>RESUME</code>, samo połączenie.</p></div>
+</div></details>
+
+<details class="module"><summary><code>src/session/SessionProvider.tsx</code></summary><div class="body">
+  <div class="fn"><code class="sig">storeSession / clearSession</code><p>Zapis / usunięcie tokenu i nazwy w <code>SecureStore</code> (Keystore).</p></div>
+  <div class="fn"><code class="sig">flushPendingLogout()</code><p>Jeśli jest token z nieudanego wylogowania, próbuje go unieważnić; sukces usuwa wpis, porażka zostawia na później.</p></div>
+  <div class="fn"><code class="sig">SessionProvider</code><p>Stan <code>status</code>/<code>userName</code>/<code>server</code>; efekty: rejestracja <code>onSessionInvalid</code>, odczyt przy starcie (<a href="#lc-app-start">5.4</a>), reakcja na <code>AppState</code> (<a href="#lc-app-state">5.6</a>).</p></div>
+  <div class="fn"><code class="sig">signIn(result) / signOutLocally()</code><p>Zapis sesji i przełączenie na <code>signedIn</code> / rozłączenie, wyczyszczenie i <code>signedOut</code>.</p></div>
+  <div class="fn"><code class="sig">value.setServer(address)</code><p>Zapisuje adres w SecureStore i konfiguruje <code>api</code> bez tokenu.</p></div>
+  <div class="fn"><code class="sig">value.login / register / resetPassword</code><p>Wywołanie <code>api</code> i <code>signIn</code>.</p></div>
+  <div class="fn"><code class="sig">value.requestPasswordReset</code><p>Przekazuje do <code>api</code>.</p></div>
+  <div class="fn"><code class="sig">value.logout</code><p>Wylogowanie odporne na brak sieci (odłożone unieważnienie tokenu).</p></div>
+  <div class="fn"><code class="sig">value.logoutAll / deleteAccount</code><p>Wywołanie <code>api</code>, potem <code>signOutLocally</code> (tylko gdy się powiodło).</p></div>
+  <div class="fn"><code class="sig">value.changePassword / changeName</code><p>Zapis nowego tokenu / nowej nazwy.</p></div>
+  <div class="fn"><code class="sig">useSession()</code><p>Hook dostępu do kontekstu; poza providerem rzuca wyjątek.</p></div>
+</div></details>
+
+<details class="module"><summary><code>src/hooks/</code></summary><div class="body">
+  <div class="fn"><code class="sig">useRemote(load)</code><p>Ładuje dane przy każdym fokusie ekranu; zwraca <code>{data, error, loading, reload}</code>. Licznik generacji odrzuca wyniki starszych wywołań. <code>load</code> musi być stabilne (zdefiniowane poza komponentem albo w <code>useCallback</code>).</p></div>
+  <div class="fn"><code class="sig">useAsyncAction()</code><p>Dla formularzy: <code>busy</code>, <code>error</code>, <code>setError</code> i <code>run(action)</code> zwracające <code>true</code>/<code>false</code>.</p></div>
+</div></details>
+
+<details class="module"><summary><code>src/i18n.ts</code></summary><div class="body">
+  <div class="fn"><code class="sig">t</code><p>Wszystkie teksty interfejsu. Po polsku, gdy telefon ma ustawiony polski (locale z <code>Intl</code>), w przeciwnym razie po angielsku; wybór zapada raz przy starcie. Słownik angielski ma typ słownika polskiego, więc brakujący klucz jest błędem kompilacji.</p></div>
+</div></details>
+
+<details class="module"><summary><code>src/validation.ts</code></summary><div class="body">
+  <div class="fn"><code class="sig">usernameError, emailError, passwordError, labelError</code><p>Te same reguły co na serwerze; zwracają komunikat albo <code>null</code>. Długości liczone w punktach kodowych (jak <code>len()</code> w Pythonie), nie w jednostkach UTF-16.</p></div>
+  <div class="fn"><code class="sig">normalizeResetCode, normalizeMac</code><p>Normalizacja jak na serwerze albo <code>null</code>.</p></div>
+  <div class="fn"><code class="sig">codePoints(value)</code><p>Długość w punktach kodowych.</p></div>
+</div></details>
+
+<details class="module"><summary><code>src/ui/</code> – komponenty</summary><div class="body">
+  <div class="fn"><code class="sig">Button</code><p>Warianty <code>primary</code>/<code>secondary</code>/<code>danger</code>, stan <code>loading</code> (spinner) i <code>disabled</code>.</p></div>
+  <div class="fn"><code class="sig">Field, Card, ErrorText, Muted, FormScreen, StatusDot, styles</code><p>Pole z etykietą (domyślnie bez autokorekty i wielkich liter), karta, tekst błędu (nic, gdy pusty), tekst przygaszony, przewijany formularz, kropka online/offline, wspólne style.</p></div>
+  <div class="fn"><code class="sig">PromptModal</code><p>Okno dialogowe z polami tekstowymi (Android nie ma <code>Alert.prompt</code>). Wartości resetuje tylko przy otwarciu; błąd z <code>onSubmit</code> pokazuje w oknie.</p></div>
+  <div class="fn"><code class="sig">DevicePicker</code><p>Lista wyboru urządzenia ESP ze statusem online.</p></div>
+  <div class="fn"><code class="sig">theme.ts</code><p><code>colors</code> i <code>spacing</code>.</p></div>
+</div></details>
+
+<details class="module"><summary><code>app/</code> – ekrany</summary><div class="body">
+  <div class="fn"><code class="sig">_layout.tsx: RootLayout, RootNavigator</code><p>Provider sesji; spinner przy <code>loading</code>; chronione grupy tras.</p></div>
+  <div class="fn"><code class="sig">(auth)/_layout.tsx</code><p>Stos: logowanie, rejestracja, reset.</p></div>
+  <div class="fn"><code class="sig">(auth)/login.tsx: saveServer, submit, openReset</code><p>Logowanie; rozwijana sekcja adresu serwera zapisywana przy edycji (rejestracja i reset łączą się z zapisanym adresem).</p></div>
+  <div class="fn"><code class="sig">(auth)/register.tsx: submit</code><p>Walidacja lokalna (w tym powtórzenie hasła) i rejestracja.</p></div>
+  <div class="fn"><code class="sig">(auth)/reset.tsx: sendCode, submit</code><p>Dwa kroki: e-mail → kod + nowe hasło.</p></div>
+  <div class="fn"><code class="sig">(tabs)/_layout.tsx: icon, HeaderLink</code><p>Zakładki Komputery / Urządzenia / Konto z przyciskami w nagłówku.</p></div>
+  <div class="fn"><code class="sig">(tabs)/index.tsx: TargetsScreen, wake, TargetCard</code><p>Lista celów z informacją o urządzeniu; przycisk „Wybudź” nieaktywny bez urządzenia i w trakcie innego budzenia.</p></div>
+  <div class="fn"><code class="sig">(tabs)/devices.tsx: DevicesScreen, lastSeen, rotate, remove</code><p>Lista urządzeń, zmiana nazwy (PromptModal), rotacja (tylko online), usunięcie.</p></div>
+  <div class="fn"><code class="sig">(tabs)/account.tsx: AccountScreen, logoutAll, dialogs</code><p>Konfiguracja trzech okien (nazwa, hasło, usunięcie) w jednym obiekcie i jeden <code>PromptModal</code>.</p></div>
+  <div class="fn"><code class="sig">target/new.tsx: NewTargetScreen, submit</code><p>Dodanie celu; automatyczny wybór, gdy jest jedno urządzenie.</p></div>
+  <div class="fn"><code class="sig">target/[id].tsx: EditTargetScreen, load, save, remove</code><p>Edycja nazwy i przypisania (MAC niezmienny – trzeba usunąć i dodać ponownie).</p></div>
+  <div class="fn"><code class="sig">device/pair.tsx: PairDeviceScreen, formatRemaining, create, copy</code><p>Tworzenie claimu, odliczanie ważności, kopiowanie do schowka, instrukcja.</p></div>
+</div></details>
+
+<h3 id="ref-esp">7.3 Firmware <span class="tag esp">C++</span></h3>
+
+<details class="module"><summary><code>main/main.cpp</code></summary><div class="body">
+  <div class="fn"><code class="sig">app_main()</code><p>NVS → Wi-Fi → zadanie <code>wol_client</code> → konsola.</p></div>
+  <div class="fn"><code class="sig">init_nvs()</code><p>Inicjalizacja NVS (z kluczami szyfrowania); przy niekompatybilnej partycji kasuje i próbuje ponownie.</p></div>
+  <div class="fn"><code class="sig">is_token(value)</code><p>Ten sam format co na serwerze (16–128 znaków <code>A-Za-z0-9_-</code>).</p></div>
+  <div class="fn"><code class="sig">claim_command(argc, argv)</code><p>Komenda konsoli <code>claim &lt;token&gt;</code>: walidacja, zapis w NVS, <code>xTaskNotifyGive</code> dla zadania klienta.</p></div>
+  <div class="fn"><code class="sig">start_console()</code><p>REPL na UART z promptem <code>wol&gt;</code>.</p></div>
+  <div class="fn"><code class="sig">client_task(void*)</code><p>Tworzy <code>WolClient</code> z konfiguracją z Kconfig i certyfikatem wkompilowanym przez <code>EMBED_TXTFILES</code>; <code>run()</code> nigdy nie wraca.</p></div>
+</div></details>
+
+<details class="module"><summary><code>network/wol_client.{hpp,cpp}</code> – <code>WolClient</code></summary><div class="body">
+  <div class="fn"><code class="sig">WolClientConfig</code><p>Host, port, CA PEM, pominięcie sprawdzania nazwy, claim token z Kconfig.</p></div>
+  <div class="fn"><code class="sig">run()</code><p>Główna pętla (<a href="#lc-esp">5.7</a>).</p></div>
+  <div class="fn"><code class="sig">load_identity()</code><p>Tożsamość z RAM lub NVS; ponawia zapis danych, które są tylko w RAM.</p></div>
+  <div class="fn"><code class="sig">pending_claim_token(token)</code><p>Token z konsoli (pierwszeństwo) albo z Kconfig, jeśli nie jest zużyty.</p></div>
+  <div class="fn"><code class="sig">forget_identity()</code><p>Kasuje tożsamość z NVS i RAM (rekord zużytego claimu zostaje).</p></div>
+  <div class="fn"><code class="sig">persist_identity()</code><p>Do 3 prób zapisu w NVS co 200 ms; przy porażce log błędu – urządzenie działa dalej z danymi w RAM.</p></div>
+  <div class="fn"><code class="sig">auth_with_credentials(creds)</code><p><code>DEVICE_AUTH</code>; <code>invalid_credentials</code> → <code>forget_identity</code> (urządzenie zostało usunięte lub sekret jest nieaktualny).</p></div>
+  <div class="fn"><code class="sig">claim_device(token)</code><p><code>DEVICE_CLAIM</code>; sukces → zapis danych i oznaczenie tokenu jako zużytego; <code>invalid_token</code> → też oznaczenie (nie wysyłać ponownie).</p></div>
+  <div class="fn"><code class="sig">session_loop()</code><p>Odczyt z krokiem 5 s, własny heartbeat (PING po 60 s ciszy, 15 s na PONG), dekodowanie i <code>handle</code>.</p></div>
+  <div class="fn"><code class="sig">handle(packet)</code><p>Rozdziela komendy serwera; zwraca <code>false</code>, gdy sesję trzeba zakończyć.</p></div>
+  <div class="fn"><code class="sig">handle_wake_up(packet)</code><p>Walidacja argumentów i MAC, <code>send_magic_packet</code>, dopiero potem <code>WAKE_ACK</code>. Przy błędzie brak ACK – serwer zgłosi <code>device_unreachable</code>.</p></div>
+  <div class="fn"><code class="sig">handle_set_secret(packet)</code><p>Najpierw trwały zapis nowego sekretu, potem aktualizacja RAM i <code>SECRET_ACK</code>. Gdy NVS nie działa od początku, akceptuje sekret tylko w RAM.</p></div>
+  <div class="fn"><code class="sig">send / await_reply</code><p>Wysłanie linii / oczekiwanie do 10 s na <code>ACK</code> lub <code>NACK</code>.</p></div>
+  <div class="fn"><code class="sig">backoff()</code><p>Opóźnienie ze składnikiem losowym (do +50%), podwajane od 2 s do 60 s.</p></div>
+</div></details>
+
+<details class="module"><summary><code>network/tls_connection.{hpp,cpp}</code> – <code>TlsConnection</code></summary><div class="body">
+  <div class="fn"><code class="sig">connect(host, port, ca_pem, skip_common_name)</code><p><code>esp_tls</code> z przypiętym CA i timeoutem 10 s.</p></div>
+  <div class="fn"><code class="sig">close()</code><p>Zniszczenie sesji TLS i bufora. Destruktor woła <code>close</code>.</p></div>
+  <div class="fn"><code class="sig">send_line(line)</code><p>Pisze w pętli do skutku, z globalnym terminem 10 s (pojedynczy zapis może zwracać WANT_WRITE bez końca).</p></div>
+  <div class="fn"><code class="sig">read_line(line, timeout_ms)</code><p>Zwraca <code>Line</code>/<code>Timeout</code>/<code>Closed</code>/<code>Error</code>. Najpierw sprawdza bufor, potem <code>esp_tls_get_bytes_avail</code> (odszyfrowane dane mogą czekać w mbedTLS niewidoczne dla <code>select</code>), dopiero potem <code>select</code> z pozostałym czasem. Linia &gt; 4096 B = <code>Error</code>.</p></div>
+</div></details>
+
+<details class="module"><summary><code>network/protocol.{hpp,cpp}</code> – <code>Packet</code></summary><div class="body">
+  <div class="fn"><code class="sig">Packet(command, args)</code><p>Komenda i argumenty jako napisy.</p></div>
+  <div class="fn"><code class="sig">encode()</code><p>cJSON → <code>{"CMD":["a","b"]}\n</code>; przy braku pamięci pusty napis (wysyłka się nie uda).</p></div>
+  <div class="fn"><code class="sig">decode(line)</code><p>Najpierw <code>nesting_within_limit</code> (≤ 4 poziomy), potem cJSON; wymaga obiektu z jednym kluczem-tablicą.</p></div>
+  <div class="fn"><code class="sig">nesting_within_limit(line)</code><p>Liczy głębokość nawiasów poza napisami – chroni stos przed rekurencyjnym parserem.</p></div>
+  <div class="fn"><code class="sig">arg_to_string(item)</code><p>Napis bez zmian, liczba całkowita jako tekst, reszta jako JSON.</p></div>
+  <div class="fn"><code class="sig">CMD_*, ERR_*</code><p>Stałe nazw komend i kodów błędów.</p></div>
+</div></details>
+
+<details class="module"><summary><code>storage/credentials.{hpp,cpp}</code> – NVS</summary><div class="body">
+  <div class="fn"><code class="sig">Credentials {device_id, secret}</code><p>Tożsamość urządzenia.</p></div>
+  <div class="fn"><code class="sig">load / save / save_secret / erase</code><p>Odczyt obu kluczy, zapis obu, zapis samego sekretu, usunięcie obu (z <code>nvs_commit</code>).</p></div>
+  <div class="fn"><code class="sig">load_claim_token / save_claim_token</code><p>Token wpisany w konsoli (klucz <code>claim</code>).</p></div>
+  <div class="fn"><code class="sig">is_claim_token_used / mark_claim_token_used</code><p>Ostatni token zużyty/odrzucony (klucz <code>used_claim</code>); oznaczenie usuwa też <code>claim</code>.</p></div>
+  <div class="fn"><code class="sig">NvsHandle</code><p>RAII dla uchwytu NVS (zamknięcie w destruktorze).</p></div>
+  <div class="fn"><code class="sig">read_string / read_key / erase_key / write</code><p>Pomocnicze operacje; brak klucza przy kasowaniu nie jest błędem.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wifi/wifi.{hpp,cpp}</code></summary><div class="body">
+  <div class="fn"><code class="sig">start(ssid, password)</code><p>Inicjalizacja netif, pętli zdarzeń, Wi-Fi STA; puste hasło = sieć otwarta, inaczej minimum WPA2-PSK.</p></div>
+  <div class="fn"><code class="sig">on_event(...)</code><p>Start → connect; rozłączenie → wyczyszczenie bitu i ponowne connect; IP → ustawienie bitu; utrata IP → wyczyszczenie.</p></div>
+  <div class="fn"><code class="sig">wait_connected()</code><p>Oczekiwanie na bit połączenia.</p></div>
+  <div class="fn"><code class="sig">copy_field</code><p>Kopiuje SSID/hasło z obcięciem do rozmiaru pola.</p></div>
+</div></details>
+
+<details class="module"><summary><code>wol/magic_packet.{hpp,cpp}</code></summary><div class="body">
+  <div class="fn"><code class="sig">parse_mac(text, out)</code><p>12 cyfr hex z dowolnymi separatorami <code>: - .</code>; odrzuca multicast.</p></div>
+  <div class="fn"><code class="sig">send_magic_packet(mac)</code><p>Pakiet 102 B (6×<code>FF</code> + 16×MAC), UDP port 9, <code>SO_BROADCAST</code>, 3 rundy co 20 ms na każdy adres rozgłoszeniowy. Sukces, jeśli wyszedł choć jeden.</p></div>
+  <div class="fn"><code class="sig">broadcast_addresses()</code><p><code>255.255.255.255</code> oraz broadcast podsieci (<code>ip | ~maska</code>), jeśli jest inny.</p></div>
+  <div class="fn"><code class="sig">hex_value(c)</code><p>Znak hex → wartość albo −1.</p></div>
+</div></details>
+
+<!-- ============================================================ -->
+<h2 id="data">8. Model danych (PostgreSQL)</h2>
+<table>
+<tr><th>Tabela</th><th>Kolumny</th><th>Ograniczenia i uwagi</th></tr>
+<tr><td><code>users</code></td><td><code>id</code>, <code>name</code>, <code>email</code>, <code>password_hash</code>, <code>created_at</code>, <code>session_epoch</code></td><td>Unikalne <code>lower(name)</code> i <code>lower(email)</code>. <code>session_epoch</code> rośnie przy każdym unieważnieniu.</td></tr>
+<tr><td><code>sessions</code></td><td><code>token_hash</code> (PK), <code>user_id</code>, <code>created_at</code>, <code>last_used_at</code>, <code>expires_at</code></td><td>Kaskada z <code>users</code>. Max 20 na użytkownika (najstarsze usuwane).</td></tr>
+<tr><td><code>claims</code></td><td><code>token_hash</code> (PK), <code>user_id</code> (UNIQUE), <code>device_name</code>, <code>expires_at</code></td><td>Jeden aktywny claim na użytkownika.</td></tr>
+<tr><td><code>devices</code></td><td><code>id</code> (PK, tekst), <code>user_id</code>, <code>name</code>, <code>secret_hash</code>, <code>next_secret_hash</code>, <code>created_at</code>, <code>last_seen_at</code></td><td>Max 10 na użytkownika. <code>next_secret_hash</code> – sekret w trakcie rotacji.</td></tr>
+<tr><td><code>targets</code></td><td><code>id</code>, <code>user_id</code>, <code>device_id</code>, <code>mac</code>, <code>name</code></td><td>UNIQUE(<code>user_id</code>, <code>mac</code>). <code>device_id</code> → <code>ON DELETE SET NULL</code>. Max 64.</td></tr>
+<tr><td><code>password_resets</code></td><td><code>user_id</code> (PK), <code>code_hash</code>, <code>attempts</code>, <code>expires_at</code></td><td>Jeden kod na użytkownika.</td></tr>
+<tr><td><code>schema_migrations</code></td><td><code>version</code>, <code>applied_at</code></td><td>Numery zastosowanych migracji.</td></tr>
+</table>
+<p>Żadna tabela nie zawiera jawnych tokenów ani sekretów – tylko HMAC z pepperem. Hasła – tylko Argon2.</p>
+
+<p><strong>Stan w pamięci</strong> (nie w bazie, ginie przy restarcie): <code>Registry</code> (kto jest online, oczekujące żądania do ESP), <code>RateLimiter</code> (kubełki), <code>ConnectionLimiter</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="protocol">9. Protokół w skrócie</h2>
+<p>Pełna specyfikacja: <a href="../server/PROTOCOL.md"><code>server/PROTOCOL.md</code></a>.</p>
+<ul>
+  <li>Ramka: <code>{"KOMENDA":[argumenty]}\n</code>, max 4096 B do serwera (odpowiedzi serwera do aplikacji do 64 KiB). Odpowiedź: <code>{"ACK":[...]}</code> lub <code>{"NACK":["kod"]}</code>.</li>
+  <li><strong>Port klienta</strong>: klient wysyła żądanie, czeka na odpowiedź, dopiero potem wysyła następne. Odpowiedzi nie mają ID.</li>
+  <li><strong>Port urządzeń</strong>: serwer wysyła do ESP <code>WAKE_UP [request_id, mac]</code> i <code>SET_SECRET [request_id, secret]</code>; ESP potwierdza <code>WAKE_ACK</code>/<code>SECRET_ACK [request_id]</code>. <code>PING</code>/<code>PONG</code> w obie strony. <code>UNPAIRED</code> – urządzenie usunięte.</li>
+  <li>ESP nigdy nie odpowiada na <code>ACK</code>/<code>NACK</code>, a serwer nie odpowiada na <code>PONG</code>, <code>WAKE_ACK</code>, <code>SECRET_ACK</code> – nie ma możliwości pętli.</li>
+</ul>
+<table>
+<tr><th>Grupa</th><th>Komendy</th></tr>
+<tr><td>Przed zalogowaniem (klient)</td><td><code>REGISTER</code>, <code>LOGIN</code>, <code>RESUME</code>, <code>REQUEST_PASSWORD_RESET</code>, <code>RESET_PASSWORD</code></td></tr>
+<tr><td>Konto</td><td><code>PING</code>, <code>LOGOUT</code>, <code>LOGOUT_ALL</code>, <code>CHANGE_PASSWORD</code>, <code>CHANGE_NAME</code>, <code>DELETE_ACCOUNT</code></td></tr>
+<tr><td>Urządzenia</td><td><code>CREATE_CLAIM</code>, <code>LIST_DEVICES</code>, <code>RENAME_DEVICE</code>, <code>REMOVE_DEVICE</code>, <code>ROTATE_DEVICE_SECRET</code></td></tr>
+<tr><td>Cele</td><td><code>ADD_TARGET</code>, <code>LIST_TARGETS</code>, <code>RENAME_TARGET</code>, <code>ASSIGN_TARGET</code>, <code>REMOVE_TARGET</code>, <code>WAKE_UP</code></td></tr>
+<tr><td>ESP → serwer</td><td><code>DEVICE_CLAIM</code>, <code>DEVICE_AUTH</code>, <code>PING</code>, <code>PONG</code>, <code>WAKE_ACK</code>, <code>SECRET_ACK</code></td></tr>
+<tr><td>Serwer → ESP</td><td><code>PING</code>, <code>WAKE_UP</code>, <code>SET_SECRET</code>, <code>UNPAIRED</code></td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="timeouts">10. Limity czasu i liczby</h2>
+<table>
+<tr><th>Co</th><th>Wartość</th><th>Gdzie</th></tr>
+<tr><td>Handshake TLS</td><td>5 s</td><td><code>Timeouts.handshake</code></td></tr>
+<tr><td>Czas na zalogowanie od połączenia</td><td>30 s, max 3 złe ramki</td><td><code>Timeouts.pre_auth</code>, <code>MAX_PRE_AUTH_BAD_FRAMES</code></td></tr>
+<tr><td>Bezczynność klienta</td><td>300 s (aplikacja pinguje co 60 s)</td><td><code>Timeouts.client_idle</code>, <code>PING_INTERVAL_MS</code></td></tr>
+<tr><td>Heartbeat ESP (serwer)</td><td>PING po 30 s ciszy, rozłączenie po 90 s</td><td><code>device_ping_interval</code>, <code>device_dead_after</code></td></tr>
+<tr><td>Heartbeat ESP (firmware)</td><td>PING po 60 s ciszy, 15 s na PONG</td><td><code>IDLE_BEFORE_PING_US</code>, <code>PONG_TIMEOUT_US</code></td></tr>
+<tr><td>Potwierdzenie od ESP</td><td>5 s (serwer), aplikacja czeka 20 s</td><td><code>DEVICE_REQUEST_TIMEOUT</code>, <code>DEVICE_REQUEST_TIMEOUT_MS</code></td></tr>
+<tr><td>Zwykłe żądanie aplikacji</td><td>15 s; połączenie 10 s</td><td><code>connection.ts</code></td></tr>
+<tr><td>Zapis do gniazda</td><td>10 s (serwer i ESP)</td><td><code>SEND_TIMEOUT</code>, <code>SEND_TIMEOUT_MS</code></td></tr>
+<tr><td>Ponowne sprawdzenie sesji</td><td>co ≤ 60 s</td><td><code>SESSION_RECHECK_SECONDS</code></td></tr>
+<tr><td>Ważność: sesja / claim / kod resetu</td><td>30 dni (przesuwne) / 10 min / 15 min</td><td><code>SESSION_TTL_SECONDS</code>, <code>CLAIM_TTL_SECONDS</code>, <code>RESET_CODE_TTL_SECONDS</code></td></tr>
+<tr><td>Backoff ESP</td><td>2 s → 60 s, ×2, +0–50%</td><td><code>BACKOFF_MIN_MS</code>, <code>BACKOFF_MAX_MS</code></td></tr>
+<tr><td>Limity połączeń (na port)</td><td>20/IP, 1000 łącznie; niezalogowane 5/IP, 256</td><td><code>ConnectionLimits</code></td></tr>
+<tr><td>Limity obiektów</td><td>20 sesji, 10 urządzeń, 64 cele na użytkownika</td><td><code>db/repo.py</code></td></tr>
+</table>
+<h4>Limity częstotliwości (<code>DEFAULT_RULES</code>)</h4>
+<table>
+<tr><th>Nazwa</th><th>Klucz</th><th>Seria / odnowienie</th></tr>
+<tr><td><code>register</code></td><td>IP</td><td>5 / 1 na 120 s</td></tr>
+<tr><td><code>register_email</code></td><td>e-mail</td><td>3 / 1 na 600 s</td></tr>
+<tr><td><code>login</code></td><td>IP</td><td>20 / 1 na 3 s</td></tr>
+<tr><td><code>login_account</code></td><td>(konto, IP), tylko porażki</td><td>10 / 1 na 60 s</td></tr>
+<tr><td><code>login_account_global</code></td><td>konto, tylko porażki</td><td>100 / 1 na 36 s</td></tr>
+<tr><td><code>resume</code></td><td>IP</td><td>30 / 1 na 2 s</td></tr>
+<tr><td><code>password_check</code></td><td>użytkownik</td><td>5 / 1 na 60 s</td></tr>
+<tr><td><code>reset_request</code> / <code>reset_request_email</code></td><td>IP / e-mail</td><td>5 / 300 s; 3 / 900 s</td></tr>
+<tr><td><code>reset_confirm</code> / <code>reset_confirm_email</code></td><td>IP / (e-mail, IP)</td><td>10 / 30 s; 5 / 60 s</td></tr>
+<tr><td><code>create_claim</code>, <code>device_claim</code></td><td>IP</td><td>10 / 30 s</td></tr>
+<tr><td><code>device_auth</code></td><td>IP</td><td>10 / 6 s</td></tr>
+<tr><td><code>wake</code></td><td>użytkownik</td><td>10 / 6 s</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="decisions">11. Decyzje architektoniczne i ich uzasadnienie</h2>
+<p>Każda decyzja: <span class="label">co</span> zostało wybrane, <span class="label">dlaczego</span>, i jaki jest <span class="label">koszt</span> (kompromis).</p>
+
+<h3 id="adr-system">11.1 System i sieć</h3>
+
+<div class="adr"><h4>D1. Serwer pośredniczący zamiast bezpośredniego dostępu do sieci domowej</h4>
+<p class="why"><span class="label">Dlaczego:</span> magic packet działa tylko w obrębie sieci lokalnej (broadcast L2). Żeby obudzić komputer z zewnątrz, w domu musi być coś, co go wyśle. Bezpośredni dostęp z internetu wymagałby przekierowania portów, stałego IP lub DDNS i wystawienia urządzenia w domu na atak.</p>
+<p class="cost"><span class="label">Koszt:</span> potrzebny publicznie dostępny serwer i baza; serwer jest pojedynczym punktem awarii.</p></div>
+
+<div class="adr"><h4>D2. ESP32 nawiązuje połączenie wychodzące i trzyma je otwarte</h4>
+<p class="why"><span class="label">Dlaczego:</span> połączenia wychodzące przechodzą przez NAT i zaporę bez konfiguracji routera. Stałe połączenie pozwala serwerowi „pchnąć” <code>WAKE_UP</code> natychmiast, bez odpytywania.</p>
+<p class="cost"><span class="label">Koszt:</span> heartbeat po obu stronach (D56), ponowne łączenie z backoffem (D55), obsługa „wiszących” połączeń po restarcie ESP (D34).</p></div>
+
+<div class="adr"><h4>D3. Osobne porty dla aplikacji (8443) i urządzeń (8444)</h4>
+<p class="why"><span class="label">Dlaczego:</span> rola połączenia wynika z portu, a nie z deklaracji klienta – ESP fizycznie nie może wywołać komendy aplikacji i odwrotnie (routing po <code>(rola, komenda)</code>). Limity połączeń są liczone osobno, więc zalanie jednego portu nie odcina drugiego. Różne timeouty (300 s vs heartbeat 30/90 s). Na zaporze można różnie traktować oba porty.</p>
+<p class="cost"><span class="label">Koszt:</span> dwa porty do otwarcia na serwerze.</p></div>
+
+<div class="adr"><h4>D4. Wi-Fi i adres serwera wkompilowane w firmware (bez BLE/SoftAP)</h4>
+<p class="why"><span class="label">Dlaczego:</span> provisioning przez BLE lub punkt dostępowy to dużo kodu, dodatkowa powierzchnia ataku i osobny ekran w aplikacji. Dla urządzenia instalowanego raz, przez właściciela z dostępem do USB, Kconfig jest wystarczający.</p>
+<p class="cost"><span class="label">Koszt:</span> zmiana sieci Wi-Fi lub adresu serwera wymaga ponownego zbudowania i wgrania firmware.</p></div>
+
+<h3 id="adr-protocol">11.2 Protokół</h3>
+
+<div class="adr"><h4>D5. Własny protokół: linie JSON na surowym TLS zamiast HTTP/WebSocket</h4>
+<p class="why"><span class="label">Dlaczego:</span> potrzebny jest kanał dwukierunkowy i trwały (serwer inicjuje <code>WAKE_UP</code>). Na ESP32 wystarczy <code>esp_tls</code> + cJSON, bez klienta HTTP/WS. Ramka <code>{"CMD":[args]}\n</code> jest trywialna do parsowania we wszystkich trzech językach i czytelna w logach. Serwer nie potrzebuje frameworka webowego.</p>
+<p class="cost"><span class="label">Koszt:</span> brak gotowych narzędzi (curl, przeglądarka, proxy HTTP); własne ramkowanie, timeouty i heartbeat. W aplikacji potrzebny natywny moduł <code>react-native-tcp-socket</code> (D39).</p></div>
+
+<div class="adr"><h4>D6. Limit 4096 B na ramkę i limit zagnieżdżenia</h4>
+<p class="why"><span class="label">Dlaczego:</span> ogranicza pamięć zużywaną przez jedno połączenie (szczególnie na ESP). Serwer ustawia <code>limit</code> w <code>StreamReader</code>, ESP sprawdza zagnieżdżenie ≤ 4 przed cJSON (rekurencja mogłaby przepełnić stos zadania 10 KB), a Python łapie <code>RecursionError</code>. Limit dotyczy wiadomości do serwera i do ESP; odpowiedzi z listami dla aplikacji są dłuższe, więc aplikacja przyjmuje linie do 64 KiB.</p>
+<p class="cost"><span class="label">Koszt:</span> listy muszą się zmieścić w 64 KiB – stąd limity 10 urządzeń i 64 celów (najgorszy przypadek <code>LIST_TARGETS</code> to ok. 55 KB).</p></div>
+
+<div class="adr"><h4>D7. Ścisłe typy argumentów</h4>
+<p class="why"><span class="label">Dlaczego:</span> <code>type(arg) is kind</code> odrzuca <code>"1"</code> zamiast <code>1</code> i <code>true</code> zamiast liczby (w Pythonie <code>bool</code> jest podklasą <code>int</code>). Schemat w dekoratorze trasy sprawia, że handler dostaje już poprawne typy.</p>
+<p class="cost"><span class="label">Koszt:</span> klienci muszą dokładnie przestrzegać typów.</p></div>
+
+<div class="adr"><h4>D8. Aplikacja: jedno żądanie naraz, odpowiedzi bez ID</h4>
+<p class="why"><span class="label">Dlaczego:</span> prostszy protokół i serwer – odpowiedź zawsze dotyczy ostatniego żądania. Aplikacja i tak wykonuje niewiele operacji; <code>WolConnection</code> może kolejkować wiele obietnic, bo serwer odpowiada w kolejności.</p>
+<p class="cost"><span class="label">Koszt:</span> timeout jednego żądania musi zamknąć całe połączenie (spóźniona odpowiedź trafiłaby do następnego). Długie <code>WAKE_UP</code> blokuje kolejne komendy na tym połączeniu.</p></div>
+
+<div class="adr"><h4>D9. Kanał serwer → ESP z <code>request_id</code> i potwierdzeniami</h4>
+<p class="why"><span class="label">Dlaczego:</span> do jednego ESP mogą równolegle trafić żądania od wielu aplikacji użytkownika. ID pozwala dopasować potwierdzenie do właściwego <code>Future</code>, a spóźnione potwierdzenia są bezpiecznie ignorowane.</p>
+<p class="cost"><span class="label">Koszt:</span> stan oczekujących żądań w pamięci; sprzątanie przy rozłączeniu (<code>DeviceLink.close</code>).</p></div>
+
+<div class="adr"><h4>D10. Potwierdzenie budzenia end-to-end</h4>
+<p class="why"><span class="label">Dlaczego:</span> użytkownik widzi „Wysłano” dopiero, gdy ESP faktycznie wysłało magic packet. Zwykłe „serwer przyjął” wprowadzałoby w błąd przy martwym ESP z otwartym jeszcze połączeniem TCP.</p>
+<p class="cost"><span class="label">Koszt:</span> dodatkowy czas oczekiwania (do 5 s) i komenda <code>WAKE_ACK</code>. Nie gwarantuje, że komputer się obudził (UDP bez potwierdzenia od PC).</p></div>
+
+<div class="adr"><h4>D11. Brak odpowiedzi na odpowiedzi</h4>
+<p class="why"><span class="label">Dlaczego:</span> ESP nie odpowiada na <code>ACK</code>/<code>NACK</code>/nieznane komendy, a serwer nie odpowiada na <code>PONG</code>/<code>*_ACK</code>. Wyklucza to nieskończone pętle „NACK na NACK” przy błędzie jednej ze stron.</p>
+<p class="cost"><span class="label">Koszt:</span> błędy są widoczne tylko w logach.</p></div>
+
+<h3 id="adr-security">11.3 Bezpieczeństwo</h3>
+
+<div class="adr"><h4>D12. TLS z przypiętym certyfikatem (self-signed) w aplikacji i firmware</h4>
+<p class="why"><span class="label">Dlaczego:</span> nie jest potrzebna domena ani publiczne CA; serwer może działać pod samym adresem IP. Przypięcie chroni przed MITM nawet przy przejętym CA systemowym. Na ESP wyłączony pakiet certyfikatów (<code>CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n</code>) – ufa tylko jednemu certyfikatowi. Min. TLS 1.2, bez kompresji.</p>
+<p class="cost"><span class="label">Koszt:</span> wymiana certyfikatu (np. po wygaśnięciu po 365 dniach) wymaga nowej wersji aplikacji i nowego firmware.</p></div>
+
+<div class="adr"><h4>D13. TLS włączany po sprawdzeniu limitów połączeń</h4>
+<p class="why"><span class="label">Dlaczego:</span> handshake TLS kosztuje CPU. <code>start_server</code> bez <code>ssl</code> i ręczne <code>start_tls</code> w <code>_on_connect</code> sprawiają, że nadmiarowe połączenia są odrzucane przed kosztownym handshakiem. Połączenia w trakcie handshake wliczają się do limitu „niezalogowanych”.</p>
+<p class="cost"><span class="label">Koszt:</span> nieco bardziej złożony kod niż <code>start_server(ssl=...)</code>.</p></div>
+
+<div class="adr"><h4>D14. Ochrona przed zasypywaniem niezalogowanymi połączeniami</h4>
+<p class="why"><span class="label">Dlaczego:</span> termin 30 s liczony od połączenia (nie od ostatniej wiadomości), max 3 złe ramki i osobny limit 5/IP dla niezalogowanych – atakujący nie utrzyma wielu tanich połączeń, blokując miejsce prawdziwym klientom.</p>
+<p class="cost"><span class="label">Koszt:</span> wolny klient musi zalogować się w 30 s.</p></div>
+
+<div class="adr"><h4>D15. Hasła: Argon2, w wątku, z semaforem i atrapą</h4>
+<p class="why"><span class="label">Dlaczego:</span> Argon2 to obecny standard odporny na GPU. Obliczenie w <code>to_thread</code> nie blokuje pętli zdarzeń, a semafor (4) ogranicza zużycie CPU/RAM przy zalewie logowań. Atrapa hasha wyrównuje czas odpowiedzi dla nieistniejących kont. <code>needs_rehash</code> pozwala zaostrzyć parametry bez migracji.</p>
+<p class="cost"><span class="label">Koszt:</span> logowanie trwa dziesiątki–setki ms; przepustowość ograniczona semaforem.</p></div>
+
+<div class="adr"><h4>D16. Tokeny przechowywane jako HMAC-SHA256 z pepperem</h4>
+<p class="why"><span class="label">Dlaczego:</span> tokeny (sesji, claimu, sekrety urządzeń, kody resetu) są losowe i długie, więc nie trzeba ich spowalniać jak haseł. HMAC jest deterministyczny – można go użyć jako klucza głównego i wyszukiwać bez skanowania. Wyciek bazy bez peppera (który jest tylko w <code>.env</code>) jest bezużyteczny.</p>
+<p class="cost"><span class="label">Koszt:</span> zmiana <code>TOKEN_PEPPER</code> unieważnia wszystkie sesje i sparowane urządzenia.</p></div>
+
+<div class="adr"><h4>D17. Token sesji zamiast hasła na telefonie</h4>
+<p class="why"><span class="label">Dlaczego:</span> hasło nie jest przechowywane w aplikacji; token można unieważnić niezależnie (LOGOUT, LOGOUT_ALL). Przechowywany w <code>expo-secure-store</code> (Keystore). Ważność przesuwna 30 dni – aktywny użytkownik nie musi się logować. Max 20 sesji na konto ogranicza „wyciek” starych urządzeń.</p>
+<p class="cost"><span class="label">Koszt:</span> kradzież tokenu daje dostęp do czasu jego unieważnienia.</p></div>
+
+<div class="adr"><h4>D18. Epoka sesji (<code>session_epoch</code>) przeciw wyścigowi logowania z unieważnieniem</h4>
+<p class="why"><span class="label">Dlaczego:</span> gdy <code>LOGIN</code> trwa (sprawdzanie hasła zajmuje czas), a w tym czasie ktoś wykona <code>CHANGE_PASSWORD</code>/<code>LOGOUT_ALL</code>, logowanie mogłoby utworzyć sesję po unieważnieniu. Epoka odczytana przed weryfikacją hasła jest porównywana przy zapisie sesji z <code>SELECT ... FOR SHARE</code> (czeka na zatwierdzenie trwającego unieważnienia). Dodatkowo <code>bind_session</code> sprawdza istnienie sesji <em>po</em> dodaniu do rejestru.</p>
+<p class="cost"><span class="label">Koszt:</span> dodatkowa kolumna, transakcja i zapytanie przy logowaniu.</p></div>
+
+<div class="adr"><h4>D19. Unieważnianie: natychmiastowe rozłączenie + okresowa weryfikacja</h4>
+<p class="why"><span class="label">Dlaczego:</span> <code>kick_user</code> od razu zamyka połączenia na tym procesie. Sprawdzenie sesji w bazie co ≤ 60 s (zamiast przy każdej komendzie) daje gwarancję także w przypadkach brzegowych, bez obciążania bazy.</p>
+<p class="cost"><span class="label">Koszt:</span> w najgorszym razie do 60 s opóźnienia (np. przy wielu instancjach serwera, gdzie <code>kick_user</code> działa tylko lokalnie).</p></div>
+
+<div class="adr"><h4>D20. Limity logowania liczone tylko od porażek, per (konto, IP) i per konto</h4>
+<p class="why"><span class="label">Dlaczego:</span> gdyby liczyć wszystkie próby per konto, obcy mógłby zablokować właściciela. Liczenie porażek per (konto, IP) (10/min) blokuje zgadywanie z jednego adresu; luźny limit per konto (100/h) – rozproszone zgadywanie. Udane logowania nie zużywają limitu.</p>
+<p class="cost"><span class="label">Koszt:</span> botnet z wieloma IP ma do 100 prób/h na konto – wystarczające przy rozsądnym haśle.</p></div>
+
+<div class="adr"><h4>D21. Limity w pamięci (token bucket)</h4>
+<p class="why"><span class="label">Dlaczego:</span> zero dodatkowej infrastruktury (Redis), stały czas operacji, łatwe testy z wstrzykiwanym zegarem. Przycinanie przy 50 000 kubełków ogranicza pamięć.</p>
+<p class="cost"><span class="label">Koszt:</span> limity resetują się przy restarcie i nie są współdzielone między instancjami.</p></div>
+
+<div class="adr"><h4>D22. Reset hasła nie ujawnia, czy e-mail istnieje</h4>
+<p class="why"><span class="label">Dlaczego:</span> <code>REQUEST_PASSWORD_RESET</code> zawsze zwraca <code>ACK []</code>, limit per e-mail działa „po cichu”, mail wychodzi w tle (czas odpowiedzi nie zależy od SMTP). Kod ~50 bitów, 15 min, jednorazowy, alfabet bez mylących znaków. Limit 50 prób łącznie jest wysoki celowo – obcy nie „spali” kodu właściciela, a zgadnięcie i tak jest niewykonalne przy limicie 5/min per (e-mail, IP).</p>
+<p class="cost"><span class="label">Koszt:</span> użytkownik z literówką w adresie nie dostaje informacji zwrotnej.</p></div>
+
+<div class="adr"><h4>D23. <code>REGISTER</code> świadomie zdradza zajętość (<code>account_exists</code>)</h4>
+<p class="why"><span class="label">Dlaczego:</span> nazwa użytkownika i tak musi być unikalna i widoczna przy rejestracji, więc ukrywanie byłoby pozorne i psułoby UX. Ryzyko ograniczono limitem per IP i per e-mail (3/10 min).</p>
+<p class="cost"><span class="label">Koszt:</span> powolne sprawdzanie, czy adres jest zarejestrowany, jest możliwe.</p></div>
+
+<div class="adr"><h4>D24. Potwierdzanie hasłem operacji wrażliwych</h4>
+<p class="why"><span class="label">Dlaczego:</span> <code>CHANGE_PASSWORD</code>, <code>CHANGE_NAME</code>, <code>DELETE_ACCOUNT</code> wymagają hasła (<code>confirm_password</code>, 5/min). Sam token (np. z odblokowanego telefonu) nie wystarcza do przejęcia lub usunięcia konta.</p>
+<p class="cost"><span class="label">Koszt:</span> użytkownik musi pamiętać hasło.</p></div>
+
+<div class="adr"><h4>D25. „Nie znaleziono” zamiast „nie twoje”</h4>
+<p class="why"><span class="label">Dlaczego:</span> każde zapytanie o urządzenie/cel jest zawężone do <code>user_id</code>; cudzy obiekt daje <code>not_found</code>, tak jak nieistniejący. Nie można sprawdzać cudzych identyfikatorów. <code>record_id</code> spoza zakresu też daje <code>not_found</code>.</p>
+<p class="cost"><span class="label">Koszt:</span> brak.</p></div>
+
+<div class="adr"><h4>D26. Walidacja wejścia: normalizacja i odrzucanie znaków sterujących</h4>
+<p class="why"><span class="label">Dlaczego:</span> nazwy są normalizowane do NFC (ta sama nazwa zapisana różnie nie tworzy duplikatów), znaki kategorii Unicode „C” są odrzucane (zapobiega sztuczkom z RTL, znakami niewidocznymi, łamaniem logów). MAC z bitem multicast byłby bezużyteczny.</p>
+<p class="cost"><span class="label">Koszt:</span> reguły trzeba utrzymywać w dwóch miejscach (serwer i <code>validation.ts</code>).</p></div>
+
+<div class="adr"><h4>D27. Szyfrowanie flash i NVS na ESP32; profil release z Secure Boot v2</h4>
+<p class="why"><span class="label">Dlaczego:</span> <code>device_secret</code> pozwala podszyć się pod urządzenie. Bez szyfrowania można go odczytać z flasha przez UART. Tryb Development pozwala jeszcze flashować; Release + Secure Boot v2 blokuje odczyt i nieautoryzowany firmware.</p>
+<p class="cost"><span class="label">Koszt:</span> pierwszy start trwale zapisuje klucz w eFuse; Release i Secure Boot są nieodwracalne; zmiana tablicy partycji wymaga <code>erase-flash</code> i ponownego parowania. Bootloader większy – offset partycji 0x10000.</p></div>
+
+<h3 id="adr-server">11.4 Serwer</h3>
+
+<div class="adr"><h4>D28. Jednowątkowy <code>asyncio</code></h4>
+<p class="why"><span class="label">Dlaczego:</span> serwer to głównie I/O (wiele długotrwałych połączeń, mało obliczeń). Jedna pętla zdarzeń = brak blokad w <code>Registry</code> i <code>RateLimiter</code> (komentarz w <code>registry.py</code>). Obliczenia CPU (Argon2) i blokujące I/O (SMTP) idą do wątków.</p>
+<p class="cost"><span class="label">Koszt:</span> jeden rdzeń dla logiki; stan w pamięci wiąże się z jedną instancją.</p></div>
+
+<div class="adr"><h4>D29. Router z dekoratorem i dispatcher jako jedno miejsce kontroli</h4>
+<p class="why"><span class="label">Dlaczego:</span> warunki wejścia (rola, logowanie, typy, limit) są deklarowane obok handlera i egzekwowane w jednym miejscu. Handler zawiera tylko logikę domeny. Duplikaty wykrywane przy starcie. Nowa komenda = nowa funkcja z dekoratorem.</p>
+<p class="cost"><span class="label">Koszt:</span> trochę „magii” – trzeba wiedzieć, że dekorator rejestruje trasę przy imporcie modułu.</p></div>
+
+<div class="adr"><h4>D30. Błędy domenowe jako wyjątek <code>CommandError</code></h4>
+<p class="why"><span class="label">Dlaczego:</span> każda warstwa (walidacja, limiter, repozytorium) może przerwać komendę jednym <code>raise</code>, bez przekazywania kodów w górę. Nieoczekiwane wyjątki stają się <code>internal</code> z logiem – szczegóły nie wyciekają do klienta.</p>
+<p class="cost"><span class="label">Koszt:</span> przepływ sterowania przez wyjątki.</p></div>
+
+<div class="adr"><h4>D31. Wstrzykiwanie zależności przez <code>Services</code>/<code>Context</code></h4>
+<p class="why"><span class="label">Dlaczego:</span> brak zmiennych globalnych; testy podstawiają <code>FakeMailer</code>, szybki hasher, własny <code>RateLimiter</code> z zegarem, krótsze <code>Timeouts</code> i niższe <code>ConnectionLimits</code>.</p>
+<p class="cost"><span class="label">Koszt:</span> więcej „przewodów” w konstruktorach.</p></div>
+
+<div class="adr"><h4>D32. PostgreSQL z <code>asyncpg</code>, SQL pisany ręcznie, niezmienniki w transakcjach</h4>
+<p class="why"><span class="label">Dlaczego:</span> asynchroniczny sterownik pasuje do <code>asyncio</code>. Ręczny SQL daje pełną kontrolę nad blokadami: <code>FOR UPDATE</code> na użytkowniku przy sprawdzaniu limitów, <code>FOR SHARE</code> dla epoki, <code>DELETE ... RETURNING</code> dla jednorazowości claimu. Unikalne indeksy na <code>lower()</code> dają niewrażliwość na wielkość liter.</p>
+<p class="cost"><span class="label">Koszt:</span> brak ORM – mapowanie wierszy ręczne (<code>_user</code>, <code>_device</code>, <code>_target</code>).</p></div>
+
+<div class="adr"><h4>D33. Migracje w kodzie, tylko do przodu, z blokadą doradczą</h4>
+<p class="why"><span class="label">Dlaczego:</span> serwer sam przygotowuje bazę przy starcie – brak osobnego narzędzia. Blokada chroni przed dwiema instancjami migrującymi naraz. Starszy kod nie ruszy na nowszej bazie.</p>
+<p class="cost"><span class="label">Koszt:</span> brak cofania migracji.</p></div>
+
+<div class="adr"><h4>D34. Nowe połączenie urządzenia zastępuje stare</h4>
+<p class="why"><span class="label">Dlaczego:</span> po restarcie ESP stare połączenie TCP może „wisieć” po stronie serwera aż do timeoutu heartbeat. Zastąpienie od razu kieruje żądania do nowego połączenia; <code>detach_device</code> sprawdza tożsamość połączenia, więc sprzątanie starego nie wyrejestruje nowego.</p>
+<p class="cost"><span class="label">Koszt:</span> dwa urządzenia z tym samym sekretem wyrzucałyby się nawzajem (log ostrzeżenia to ujawnia).</p></div>
+
+<div class="adr"><h4>D35. Dwufazowa rotacja sekretu</h4>
+<p class="why"><span class="label">Dlaczego:</span> jeśli <code>SECRET_ACK</code> zginie albo ESP zrestartuje się w trakcie, żadna ze stron nie może zostać z sekretem, którego druga nie zna. Serwer akceptuje stary i nowy, dopóki nowy nie zostanie potwierdzony lub użyty. Bez potwierdzenia serwer rozłącza ESP, a sekret użyty przy ponownym logowaniu zostaje jedynym ważnym, więc kolejna rotacja nie nadpisze sekretu, który ESP naprawdę ma. <code>rotation_lock</code> zapobiega przeplotowi dwóch rotacji. ESP zapisuje do NVS przed potwierdzeniem.</p>
+<p class="cost"><span class="label">Koszt:</span> dodatkowa kolumna i logika w <code>authenticate</code>/<code>promote_secret</code>.</p></div>
+
+<div class="adr"><h4>D36. Cele przeżywają usunięcie urządzenia</h4>
+<p class="why"><span class="label">Dlaczego:</span> <code>ON DELETE SET NULL</code> – po wymianie ESP użytkownik nie traci listy komputerów, tylko przypina je do nowego urządzenia (<code>ASSIGN_TARGET</code>).</p>
+<p class="cost"><span class="label">Koszt:</span> stan „cel bez urządzenia” (<code>no_device</code>) do obsłużenia w UI.</p></div>
+
+<div class="adr"><h4>D37. Konfiguracja walidowana przy starcie (fail fast)</h4>
+<p class="why"><span class="label">Dlaczego:</span> błędy typu „brak certyfikatu”, „za krótki pepper”, „hasło SMTP bez TLS” wychodzą od razu z nazwą zmiennej, zamiast w trakcie pracy.</p>
+<p class="cost"><span class="label">Koszt:</span> brak.</p></div>
+
+<div class="adr"><h4>D38. E-mail wysyłany w tle</h4>
+<p class="why"><span class="label">Dlaczego:</span> odpowiedź nie czeka na SMTP (szybka i o stałym czasie, patrz D22); błąd SMTP nie trafia do klienta. <code>Mailer.close</code> daje zadaniom czas przy zatrzymaniu.</p>
+<p class="cost"><span class="label">Koszt:</span> brak kolejki trwałej – mail w trakcie wysyłki przy awarii procesu przepada (użytkownik poprosi o nowy kod).</p></div>
+
+<h3 id="adr-client">11.5 Aplikacja</h3>
+
+<div class="adr"><h4>D39. Expo / React Native z <code>react-native-tcp-socket</code></h4>
+<p class="why"><span class="label">Dlaczego:</span> jeden kod TypeScript, szybki rozwój, EAS Build do APK. Surowe gniazdo TLS jest potrzebne przez D5; ten moduł obsługuje też własne CA (<code>ca</code>) do przypięcia certyfikatu.</p>
+<p class="cost"><span class="label">Koszt:</span> nie działa w Expo Go – potrzebny <code>expo-dev-client</code> lub zbudowany APK. Certyfikat jest assetem (<code>metro.config.js</code> dodaje rozszerzenie <code>pem</code>).</p></div>
+
+<div class="adr"><h4>D40. Jedna trwała sesja w singletonie <code>WolApi</code></h4>
+<p class="why"><span class="label">Dlaczego:</span> jedno połączenie na aplikację, logowanie (<code>RESUME</code>) raz na połączenie, a nie na każde żądanie. Memoizacja obietnicy sesji sprawia, że równoległe wywołania (np. <code>Promise.all</code> na ekranie głównym) czekają na to samo <code>RESUME</code>. Automatyczne ponowne połączenie przy kolejnym wywołaniu.</p>
+<p class="cost"><span class="label">Koszt:</span> stan globalny; ekrany współdzielą kolejkę żądań (D8).</p></div>
+
+<div class="adr"><h4>D41. Połączenia poboczne do resetu hasła i unieważniania tokenu</h4>
+<p class="why"><span class="label">Dlaczego:</span> <code>REQUEST_PASSWORD_RESET</code> wymaga stanu „niezalogowany”, a <code>revokeToken</code> loguje się <em>innym</em> tokenem. Osobne, krótkie połączenie nie narusza głównej sesji.</p>
+<p class="cost"><span class="label">Koszt:</span> dodatkowy handshake TLS.</p></div>
+
+<div class="adr"><h4>D42. Jedna ścieżka zamknięcia i identyfikacja gniazda w <code>WolConnection</code></h4>
+<p class="why"><span class="label">Dlaczego:</span> wszystkie sposoby zamknięcia idą przez <code>shutdown()</code>, który rozlicza każdą obietnicę i timer; handlery zdarzeń sprawdzają <code>this.socket === socket</code>. Nic ze starego gniazda nie wpłynie na nowe, nie ma „wiszących” obietnic.</p>
+<p class="cost"><span class="label">Koszt:</span> nieco więcej kodu kontrolnego.</p></div>
+
+<div class="adr"><h4>D43. Walidacja odpowiedzi serwera w czasie działania</h4>
+<p class="why"><span class="label">Dlaczego:</span> TypeScript nie sprawdza danych z sieci. Strażnicy <code>isDevice</code>/<code>isTarget</code> gwarantują, że ekran nie dostanie obiektu o złym kształcie (np. przy niezgodnej wersji serwera) – zamiast awarii renderowania jest czytelny <code>protocol_error</code>.</p>
+<p class="cost"><span class="label">Koszt:</span> strażników trzeba aktualizować razem z protokołem.</p></div>
+
+<div class="adr"><h4>D44. Walidacja formularzy lustrzana z serwerem</h4>
+<p class="why"><span class="label">Dlaczego:</span> błędy widać natychmiast, bez podróży do serwera i bez zużywania limitów. Serwer pozostaje źródłem prawdy. Długości liczone w punktach kodowych, żeby zgadzały się z Pythonem (emoji).</p>
+<p class="cost"><span class="label">Koszt:</span> dwie kopie reguł (komentarz w <code>validation.ts</code> wskazuje źródło).</p></div>
+
+<div class="adr"><h4>D45. Optymistyczne „zalogowany” przy starcie</h4>
+<p class="why"><span class="label">Dlaczego:</span> z zapisanym tokenem aplikacja od razu pokazuje panel – bez czekania na sieć. Serwer offline objawia się błędem na ekranie, a nieważny token wylogowuje przez <code>onSessionInvalid</code>.</p>
+<p class="cost"><span class="label">Koszt:</span> przez chwilę może być widoczny panel dla już unieważnionej sesji.</p></div>
+
+<div class="adr"><h4>D46. Odłożone wylogowanie (<code>pending_logout</code>)</h4>
+<p class="why"><span class="label">Dlaczego:</span> wylogowanie zawsze działa lokalnie, nawet bez sieci. Token, którego nie udało się unieważnić, jest zapisywany i unieważniany przy najbliższej okazji (start, powrót do aplikacji, logowanie) – nie zostaje ważna „sierocza” sesja.</p>
+<p class="cost"><span class="label">Koszt:</span> dodatkowy wpis w SecureStore i logika ponawiania.</p></div>
+
+<div class="adr"><h4>D47. Rozłączanie w tle</h4>
+<p class="why"><span class="label">Dlaczego:</span> Android i tak ubija gniazda w tle; jawne rozłączenie oszczędza baterię i sprawia, że stan jest przewidywalny. Po powrocie – nowe połączenie i <code>RESUME</code>.</p>
+<p class="cost"><span class="label">Koszt:</span> handshake po każdym powrocie do aplikacji.</p></div>
+
+<div class="adr"><h4>D48. Expo Router z <code>Stack.Protected</code></h4>
+<p class="why"><span class="label">Dlaczego:</span> dostępność tras wynika wprost ze statusu sesji – po wylogowaniu nie trzeba ręcznie resetować nawigacji, a zalogowany użytkownik nie wejdzie na ekran logowania. Routing plikowy odzwierciedla strukturę ekranów.</p>
+<p class="cost"><span class="label">Koszt:</span> zależność od nowszej wersji Expo Router.</p></div>
+
+<div class="adr"><h4>D49. <code>useRemote</code>: ładowanie przy fokusie i licznik generacji</h4>
+<p class="why"><span class="label">Dlaczego:</span> po powrocie z ekranu edycji lista jest świeża bez ręcznego odświeżania i bez globalnego magazynu stanu. Licznik generacji odrzuca wyniki starszych żądań.</p>
+<p class="cost"><span class="label">Koszt:</span> więcej zapytań niż przy cache.</p></div>
+
+<div class="adr"><h4>D50. <code>PromptModal</code> zamiast <code>Alert.prompt</code></h4>
+<p class="why"><span class="label">Dlaczego:</span> <code>Alert.prompt</code> istnieje tylko na iOS. Własny modal obsługuje wiele pól, pola hasła i błędy z serwera.</p>
+<p class="cost"><span class="label">Koszt:</span> własny komponent do utrzymania.</p></div>
+
+<h3 id="adr-esp">11.6 Firmware</h3>
+
+<div class="adr"><h4>D51. Parowanie przez jednorazowy claim token</h4>
+<p class="why"><span class="label">Dlaczego:</span> użytkownik nie wpisuje hasła do urządzenia. Token 128 bitów, 10 min, jeden aktywny na konto, przypisany do konta. Serwer wydaje ESP własną tożsamość (<code>device_id</code> + sekret 256 bitów), niezależną od hasła. Dwie drogi: konsola UART (bez ponownego flashowania) albo Kconfig.</p>
+<p class="cost"><span class="label">Koszt:</span> potrzebny dostęp do USB/UART lub przebudowanie firmware.</p></div>
+
+<div class="adr"><h4>D52. ESP pamięta ostatni zużyty token</h4>
+<p class="why"><span class="label">Dlaczego:</span> token z Kconfig jest wkompilowany na zawsze. Bez tego zapisu, po <code>UNPAIRED</code> lub utracie danych ESP wysyłałby go przy każdym starcie, zużywając limity i zaśmiecając logi. Nieznany token nie powoduje połączenia – ESP czeka na <code>claim</code>.</p>
+<p class="cost"><span class="label">Koszt:</span> dodatkowy klucz NVS.</p></div>
+
+<div class="adr"><h4>D53. Dane logowania również w RAM</h4>
+<p class="why"><span class="label">Dlaczego:</span> jeśli zapis do NVS się nie uda (np. brak miejsca), urządzenie nie traci sparowania do restartu i ponawia zapis. Bez tego nieudany zapis po <code>DEVICE_CLAIM</code> oznaczałby zużyty token i brak tożsamości.</p>
+<p class="cost"><span class="label">Koszt:</span> flaga <code>creds_persisted_</code> i dodatkowe gałęzie.</p></div>
+
+<div class="adr"><h4>D54. C++ bez wyjątków, wynik przez <code>bool</code>/<code>optional</code>/<code>esp_err_t</code></h4>
+<p class="why"><span class="label">Dlaczego:</span> wyjątki w ESP-IDF zwiększają rozmiar binarki i są wyłączone (<code>CONFIG_COMPILER_CXX_EXCEPTIONS=n</code>). Jawne wartości zwrotne pasują do API ESP-IDF. RAII (<code>NvsHandle</code>, destruktor <code>TlsConnection</code>) pilnuje zasobów.</p>
+<p class="cost"><span class="label">Koszt:</span> każde wywołanie trzeba sprawdzać ręcznie.</p></div>
+
+<div class="adr"><h4>D55. Wykładniczy backoff z losowym składnikiem</h4>
+<p class="why"><span class="label">Dlaczego:</span> przy awarii serwera ESP nie zasypuje go próbami, a losowość rozprasza ponowne połączenia wielu urządzeń po restarcie serwera. Po udanej sesji backoff wraca do 2 s.</p>
+<p class="cost"><span class="label">Koszt:</span> do ~90 s niedostępności po przywróceniu serwera.</p></div>
+
+<div class="adr"><h4>D56. Heartbeat po obu stronach, różne progi</h4>
+<p class="why"><span class="label">Dlaczego:</span> serwer pinguje po 30 s ciszy, więc ESP normalnie nie musi – jego próg 60 s zadziała tylko, gdy serwer przestał wysyłać (połączenie półotwarte). Obie strony wykrywają martwe połączenie w skończonym czasie.</p>
+<p class="cost"><span class="label">Koszt:</span> niewielki ruch co 30 s.</p></div>
+
+<div class="adr"><h4>D57. Odczyt z <code>select</code> i sprawdzeniem bufora mbedTLS; termin zapisu</h4>
+<p class="why"><span class="label">Dlaczego:</span> odszyfrowane dane mogą leżeć w mbedTLS, a <code>select</code> na gnieździe ich nie widzi – bez <code>esp_tls_get_bytes_avail</code> odczyt mógłby czekać mimo gotowych danych. Globalny termin zapisu chroni przed zablokowaniem zadania, gdy serwer przestaje odbierać.</p>
+<p class="cost"><span class="label">Koszt:</span> bardziej złożona pętla odczytu.</p></div>
+
+<div class="adr"><h4>D58. Magic packet 3× na dwa adresy rozgłoszeniowe</h4>
+<p class="why"><span class="label">Dlaczego:</span> UDP może zginąć; część routerów/AP filtruje <code>255.255.255.255</code>, inne broadcast podsieci. Powtórzenia i dwa adresy zwiększają skuteczność. Port 9 (discard) to standard WoL.</p>
+<p class="cost"><span class="label">Koszt:</span> kilka dodatkowych pakietów.</p></div>
+
+<div class="adr"><h4>D59. Osobne zadanie klienta i konsola, powiadomienie zadania</h4>
+<p class="why"><span class="label">Dlaczego:</span> <code>WolClient::run</code> blokuje; konsola działa w swoim zadaniu REPL. <code>xTaskNotifyGive</code> budzi klienta natychmiast po wpisaniu <code>claim</code>, bez aktywnego odpytywania.</p>
+<p class="cost"><span class="label">Koszt:</span> stos 10 KB na zadanie klienta (TLS + cJSON).</p></div>
+
+<h3 id="adr-ops">11.7 Wdrożenie i testy</h3>
+
+<div class="adr"><h4>D60. Docker Compose z PostgreSQL, użytkownik bez uprawnień, <code>STOPSIGNAL SIGINT</code></h4>
+<p class="why"><span class="label">Dlaczego:</span> jedno polecenie uruchamia bazę i serwer; healthcheck bazy gwarantuje kolejność startu. Serwer działa jako użytkownik systemowy <code>wol</code>. Serwer zamyka się czysto na <code>KeyboardInterrupt</code>, więc Docker wysyła SIGINT zamiast SIGTERM. Certyfikaty montowane tylko do odczytu.</p>
+<p class="cost"><span class="label">Koszt:</span> zależność od Dockera przy tej ścieżce wdrożenia.</p></div>
+
+<div class="adr"><h4>D61. Testy integracyjne na prawdziwym TLS i PostgreSQL</h4>
+<p class="why"><span class="label">Dlaczego:</span> <code>trustme</code> generuje CA i certyfikat na test, serwer startuje na porcie 0, każdy test dostaje własny schemat bazy. Testy sprawdzają cały stos (TLS, ramkowanie, dispatcher, SQL) tak, jak używa go klient. Testy bez bazy (transport) działają zawsze.</p>
+<p class="cost"><span class="label">Koszt:</span> pełne testy wymagają <code>TEST_DATABASE_URL</code>.</p></div>
+
+<!-- ============================================================ -->
+<h2 id="config">12. Konfiguracja i uruchomienie</h2>
+<p>Szczegółowa instrukcja krok po kroku jest w <a href="../README.md"><code>README.md</code></a>. Najważniejsze:</p>
+<ol>
+  <li><strong>Certyfikat</strong>: <code>openssl req -x509 ...</code> z CN/SAN zgodnym z adresem serwera; skopiuj <code>server.crt</code> do <code>client/assets/server.pem</code> i <code>esp_client/main/certs/server.crt</code>.</li>
+  <li><strong>Serwer</strong>: <code>.env</code> z <code>TOKEN_PEPPER</code> i <code>DATABASE_URL</code> (lub <code>POSTGRES_PASSWORD</code> dla Compose), opcjonalnie <code>SMTP_*</code>. <code>docker compose up -d --build</code> albo <code>python -m wol_server</code>.</li>
+  <li><strong>Aplikacja</strong>: <code>expo.extra.serverHost/serverPort</code> w <code>app.json</code>; <code>npm ci</code>, <code>npm run android</code> lub <code>npm run build:apk</code>.</li>
+  <li><strong>Firmware</strong>: <code>idf.py menuconfig</code> → „Wake-on-LAN client” (<code>WOL_WIFI_SSID</code>, <code>WOL_WIFI_PASSWORD</code>, <code>WOL_SERVER_HOST</code>, <code>WOL_SERVER_PORT</code>, opcjonalnie <code>WOL_CLAIM_TOKEN</code>, <code>WOL_SKIP_CN_CHECK</code> tylko do testów); <code>idf.py build flash monitor</code>.</li>
+</ol>
+<div class="warn">Domyślny <code>sdkconfig.defaults</code> włącza szyfrowanie flasha – pierwsze uruchomienie zapisuje klucz w eFuse. Profil release (Secure Boot v2) jest nieodwracalny. Przeczytaj sekcję o zabezpieczeniach w <code>PROTOCOL.md</code> przed pierwszym flashowaniem.</div>
+
+<h4>Zmienne środowiskowe serwera</h4>
+<table>
+<tr><th>Zmienna</th><th>Domyślnie</th><th>Opis</th></tr>
+<tr><td><code>SERVER_HOST</code></td><td><code>0.0.0.0</code></td><td>Adres nasłuchu.</td></tr>
+<tr><td><code>CLIENT_PORT</code> / <code>DEVICE_PORT</code></td><td>wymagane (8443 / 8444)</td><td>Porty; muszą być różne.</td></tr>
+<tr><td><code>TLS_CERT_FILE</code> / <code>TLS_KEY_FILE</code></td><td><code>server.crt</code> / <code>server.key</code></td><td>Ścieżki względem <code>server/</code>.</td></tr>
+<tr><td><code>DATABASE_URL</code></td><td>wymagane</td><td><code>postgresql://...</code></td></tr>
+<tr><td><code>DB_POOL_SIZE</code></td><td>10</td><td>1–100.</td></tr>
+<tr><td><code>TOKEN_PEPPER</code></td><td>wymagane</td><td>≥ 32 znaki, klucz HMAC.</td></tr>
+<tr><td><code>LOG_LEVEL</code></td><td><code>INFO</code></td><td><code>DEBUG</code>/<code>INFO</code>/<code>WARNING</code>/<code>ERROR</code>.</td></tr>
+<tr><td><code>SMTP_HOST</code>, <code>SMTP_SECURITY</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASSWORD</code>, <code>SMTP_FROM</code>, <code>SMTP_FROM_NAME</code></td><td>puste = reset wyłączony</td><td>Poczta dla kodów resetu.</td></tr>
+<tr><td><code>POSTGRES_PASSWORD</code></td><td>—</td><td>Tylko dla Docker Compose.</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="tests">13. Testy</h2>
+<p>Serwer: <code>cd server &amp;&amp; pip install -r requirements-dev.txt &amp;&amp; pip install -e . &amp;&amp; pytest</code>. Testy wymagające bazy są pomijane bez <code>TEST_DATABASE_URL</code>.</p>
+<table>
+<tr><th>Plik</th><th>Co sprawdza</th></tr>
+<tr><td><code>test_protocol.py</code></td><td>Kodowanie/dekodowanie ramek, błędne formaty.</td></tr>
+<tr><td><code>test_validation.py</code></td><td>Reguły pól (nazwy, e-mail, MAC, kody).</td></tr>
+<tr><td><code>test_ratelimit.py</code></td><td>Kubełki tokenów ze sztucznym zegarem.</td></tr>
+<tr><td><code>test_dispatcher.py</code></td><td>Routing, schemat, stan logowania, zamiana wyjątków.</td></tr>
+<tr><td><code>test_transport.py</code></td><td>Timeouty, złe i za długie ramki, limity połączeń (bez bazy).</td></tr>
+<tr><td><code>test_repo.py</code></td><td>Repozytoria na prawdziwym PostgreSQL (limity, rotacja, epoka).</td></tr>
+<tr><td><code>test_password_reset.py</code></td><td>Pełny przepływ resetu z <code>FakeMailer</code>.</td></tr>
+<tr><td><code>test_integration.py</code></td><td>Scenariusze end-to-end przez TLS: rejestracja, parowanie, budzenie, unieważnianie.</td></tr>
+</table>
+<p><code>tests/helpers.py</code> dostarcza <code>running_server</code> (serwer na porcie 0 z certyfikatem <code>trustme</code>), <code>Peer</code> (klient testowy) i <code>Harness</code> (<code>registered_client</code>, <code>paired_device</code>). Aplikacja: <code>npm run typecheck</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="glossary">14. Słownik pojęć</h2>
+<table>
+<tr><th>Pojęcie</th><th>Znaczenie</th></tr>
+<tr><td>Cel (target)</td><td>Komputer do obudzenia: nazwa + MAC + przypisane urządzenie ESP.</td></tr>
+<tr><td>Urządzenie (device)</td><td>Sparowane ESP32 w sieci domowej.</td></tr>
+<tr><td>Claim token</td><td>Jednorazowy token parowania wydany aplikacji i wpisany na ESP.</td></tr>
+<tr><td>Device secret</td><td>Sekret urządzenia (32 B) używany w <code>DEVICE_AUTH</code>.</td></tr>
+<tr><td>Session token</td><td>Token sesji aplikacji (32 B), ważny 30 dni od ostatniego użycia.</td></tr>
+<tr><td>Pepper</td><td>Tajny klucz HMAC (<code>TOKEN_PEPPER</code>) spoza bazy.</td></tr>
+<tr><td>Epoka sesji</td><td>Licznik unieważnień konta; chroni przed wyścigiem logowania.</td></tr>
+<tr><td>Magic packet</td><td>Ramka UDP: 6×<code>0xFF</code> + 16× MAC; karta sieciowa budzi komputer po jej odebraniu.</td></tr>
+<tr><td>NVS</td><td>Non-Volatile Storage – magazyn klucz-wartość we flashu ESP32.</td></tr>
+<tr><td>eFuse</td><td>Jednorazowo programowalne bity w układzie ESP32 (klucze szyfrowania, Secure Boot).</td></tr>
+<tr><td>Token bucket</td><td>Algorytm limitu: seria do pojemności, potem stałe tempo odnawiania.</td></tr>
+<tr><td>ACK / NACK</td><td>Odpowiedź pozytywna / z kodem błędu.</td></tr>
+<tr><td>Registry</td><td>Mapa połączeń na żywo w pamięci serwera.</td></tr>
+</table>
+
+</main>
+
+<script>
+(function () {
+  const links = Array.from(document.querySelectorAll('nav#toc a[href^="#"]'));
+  const targets = links.map(a => document.getElementById(a.getAttribute('href').slice(1))).filter(Boolean);
+  const onScroll = () => {
+    let current = targets[0];
+    for (const t of targets) { if (t.getBoundingClientRect().top < 120) current = t; }
+    links.forEach(a => a.classList.toggle('active', current && a.getAttribute('href') === '#' + current.id));
+  };
+  document.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  const modules = Array.from(document.querySelectorAll('details.module'));
+  const search = document.getElementById('fn-search');
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    modules.forEach(m => {
+      const fns = Array.from(m.querySelectorAll('.fn'));
+      let any = false;
+      fns.forEach(fn => {
+        const hit = !q || fn.textContent.toLowerCase().includes(q) || m.querySelector('summary').textContent.toLowerCase().includes(q);
+        fn.classList.toggle('hidden', !hit);
+        any = any || hit;
+      });
+      m.classList.toggle('hidden', !any);
+      if (q) m.open = any;
+    });
+  });
+  document.getElementById('expand-all').addEventListener('click', () => modules.forEach(m => m.open = true));
+  document.getElementById('collapse-all').addEventListener('click', () => modules.forEach(m => m.open = false));
+})();
+</script>
+</body>
+</html>

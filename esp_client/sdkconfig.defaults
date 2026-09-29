@@ -1,0 +1,18 @@
+CONFIG_COMPILER_CXX_EXCEPTIONS=n
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# The encrypted bootloader no longer fits below the default 0x8000 offset.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x10000
+
+# The device secret lives in NVS. The first boot burns the flash encryption key into
+# eFuse even in Development mode, which still allows reflashing over UART; production
+# builds add sdkconfig.defaults.release (see server/PROTOCOL.md).
+CONFIG_SECURE_FLASH_ENC_ENABLED=y
+CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT=y
+CONFIG_NVS_ENCRYPTION=y
+
+CONFIG_ESP_TLS_USING_MBEDTLS=y
+CONFIG_MBEDTLS_SSL_PROTO_TLS1_2=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n

@@ -1,0 +1,9 @@
+node_modules/
+.expo/
+dist/
+android/
+ios/
+expo-env.d.ts
+*.apk
+*.aab
+assets/server.pem
