@@ -1,2 +1,18 @@
 __pycache__/
 .pytest_cache/
+
+# Environment and secrets (defense in depth; also in server/.gitignore)
+.env
+.env.*
+
+# IDE / editor
+.vscode/
+.idea/
+*.suo
+*.user
+*.sln.docstates
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
