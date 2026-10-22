@@ -195,12 +195,39 @@ class UsersRepo:
             new_hash, user_id, old_hash,
         )
 
-    async def change_password(self, user_id: int, password_hash: str) -> int:
-        """Set a new password and revoke all sessions, reset codes and claims; return the new epoch."""
+    async def change_password(
+        self, user_id: int, password_hash: str, *, expected_epoch: int,
+        session_token_hash: str | None = None,
+    ) -> int:
+        """Replace a password only if its authorization has not been revoked.
+
+        Account changes also require the calling session; a consumed reset code
+        authorizes the reset path using the epoch read before code verification.
+        """
         async with self._db.transaction() as conn:
-            _require_row(await conn.execute(
-                "UPDATE users SET password_hash = $1 WHERE id = $2", password_hash, user_id
-            ))
+            # The conditional update locks the user row. A concurrent revocation
+            # must finish first, and PostgreSQL rechecks the epoch after waiting.
+            status = await conn.execute(
+                "UPDATE users SET password_hash = $1 WHERE id = $2 AND session_epoch = $3",
+                password_hash, user_id, expected_epoch,
+            )
+            if _affected(status) == 0:
+                raise CommandError(Err.INVALID_CREDENTIALS)
+            if session_token_hash is not None:
+                # Lock in user -> session order, shared by session creation and
+                # revocation. Failure rolls back the password update above.
+                session = await conn.fetchval(
+                    "SELECT 1 FROM sessions WHERE token_hash = $1 AND user_id = $2 FOR UPDATE",
+                    session_token_hash, user_id,
+                )
+                if session is None or not await conn.fetchval(
+                    "SELECT expires_at > clock_timestamp() FROM sessions"
+                    " WHERE token_hash = $1 AND user_id = $2",
+                    session_token_hash, user_id,
+                ):
+                    # Check wall-clock expiry after acquiring the lock, not at
+                    # transaction start or before a potentially long lock wait.
+                    raise CommandError(Err.INVALID_CREDENTIALS)
             return await _revoke_credentials(conn, user_id)
 
     async def revoke_all(self, user_id: int) -> int:

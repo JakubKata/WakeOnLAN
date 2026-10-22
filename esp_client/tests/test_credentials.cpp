@@ -5,6 +5,7 @@
 #include "onboarding_request.hpp"
 #include "release_version.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <iostream>
@@ -96,7 +97,7 @@ void test_claim_replacement_and_confirmation() {
   check(load().paired && load().claim_token.empty(), "confirmation must clear matching pending claim");
   const int written = writes;
   check(credentials::mark_paired("") == ESP_OK && writes == written, "reconnect rewrites unchanged identity");
-  check(credentials::mark_unpaired() == ESP_OK, "owner removal");
+  check(credentials::mark_unpaired("") == ESP_OK, "owner removal");
   reboot(); same_identity(identity);
   check(!load().paired && load().claim_token.empty(), "owner removal state");
 }
@@ -160,6 +161,65 @@ void test_damaged_identity_is_never_replaced() {
 
   reset(); fail_open = true;
   check(credentials::ensure_identity() != ESP_OK && random_calls == 0, "NVS error caused regeneration");
+}
+
+void test_claim_capacity_preserves_durable_state() {
+  reset(); check(credentials::ensure_identity() == ESP_OK, "create identity");
+  const auto identity = load();
+  const std::string maximum(128, 'a');
+  check(credentials::save_claim_token(maximum) == ESP_OK, "maximum claim rejected");
+  const int written = writes, committed = commits;
+  check(credentials::save_claim_token(maximum + "b") == ESP_ERR_INVALID_ARG,
+        "oversized claim accepted");
+  check(writes == written && commits == committed, "oversized claim modified NVS");
+  reboot(); same_identity(identity);
+  check(load().claim_token == maximum, "oversized claim destroyed previous token");
+  check(credentials::clear_claim_token(maximum) == ESP_OK && load().claim_token.empty(),
+        "maximum claim cannot be consumed");
+}
+
+void test_complete_but_invalid_records_are_rejected() {
+  reset(); check(credentials::ensure_identity() == ESP_OK, "create identity");
+  const auto valid = durable.at("identity");
+  // The persisted v1 layout is two flag bytes followed by three 129-byte C strings.
+  check(valid.bytes.size() == 389, "unexpected v1 wire layout");
+  const auto reject = [&](std::vector<unsigned char> bytes) {
+    durable["identity"] = Entry{true, std::move(bytes)};
+    const auto before = durable.at("identity").bytes;
+    const int written = writes, generated = random_calls;
+    Credentials sentinel{"keep-id", "keep-secret", "keep-claim", true};
+    check(!credentials::load(sentinel), "invalid complete record accepted");
+    check(sentinel.device_id == "keep-id" && sentinel.secret == "keep-secret" &&
+          sentinel.claim_token == "keep-claim" && sentinel.paired,
+          "failed load exposed partial record");
+    check(credentials::ensure_identity() != ESP_OK, "invalid record silently repaired");
+    check(writes == written && random_calls == generated &&
+          durable.at("identity").bytes == before, "invalid identity was overwritten");
+  };
+  auto invalid = valid.bytes; invalid[0] = 2; reject(invalid);
+  invalid = valid.bytes; invalid[1] = 2; reject(invalid);
+  for (const size_t start : {size_t{2}, size_t{131}, size_t{260}}) {
+    invalid = valid.bytes;
+    std::fill(invalid.begin() + start, invalid.begin() + start + 129, 'x');
+    reject(invalid);
+  }
+  for (const size_t start : {size_t{2}, size_t{131}}) {
+    invalid = valid.bytes; invalid[start] = 0; reject(invalid);
+  }
+}
+
+void test_failed_legacy_commit_preserves_recoverable_keys() {
+  reset();
+  legacy("device_id", "legacy-device-id-123"); legacy("secret", "legacy-device-secret-456");
+  fail_commit = 1;
+  check(credentials::ensure_identity() != ESP_OK, "failed migration commit reported success");
+  check(durable.count("identity") == 0 && durable.count("device_id") == 1 &&
+        durable.count("secret") == 1, "failed migration destroyed legacy identity");
+  reboot();
+  check(credentials::ensure_identity() == ESP_OK, "migration retry failed");
+  const auto migrated = load();
+  check(migrated.device_id == "legacy-device-id-123" && migrated.secret == "legacy-device-secret-456"
+        && migrated.paired && random_calls == 0, "migration retry changed legacy identity");
 }
 
 void test_ota_version_gate() {
@@ -263,6 +323,9 @@ int main() {
     {"ambiguous commit", test_ambiguous_commit_keeps_complete_identity},
     {"legacy migration", test_legacy_migration_and_interrupted_cleanup},
     {"damaged identity retention", test_damaged_identity_is_never_replaced},
+    {"claim capacity and durable state", test_claim_capacity_preserves_durable_state},
+    {"invalid complete record retention", test_complete_but_invalid_records_are_rejected},
+    {"failed legacy commit recovery", test_failed_legacy_commit_preserves_recoverable_keys},
     {"OTA version gate", test_ota_version_gate},
     {"onboarding parser boundaries", test_onboarding_request_boundaries},
   };
@@ -271,4 +334,5 @@ int main() {
     catch (const std::exception& error) { std::cerr << "FAIL " << name << ": " << error.what() << '\n'; return 1; }
     std::cout << "PASS " << name << '\n';
   }
+  return 0;
 }

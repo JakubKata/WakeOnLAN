@@ -136,6 +136,6 @@ esp_err_t ensure_identity() {
 
 esp_err_t save_claim_token(const std::string& token) { return update(false, false, token); }
 esp_err_t mark_paired(const std::string& expected_claim) { return update(true, true, "", &expected_claim); }
-esp_err_t mark_unpaired() { return update(false, true, ""); }
+esp_err_t mark_unpaired(const std::string& expected_claim) { return update(false, true, "", &expected_claim); }
 esp_err_t clear_claim_token(const std::string& expected_claim) { return update(false, false, "", &expected_claim); }
 }  // namespace credentials

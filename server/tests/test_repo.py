@@ -107,7 +107,7 @@ def test_session_is_not_created_for_a_stale_epoch():
         epoch = (await services.users.by_id(user)).session_epoch
         await services.sessions.create(user, "before", ttl=60, epoch=epoch)
 
-        new_epoch = await services.users.change_password(user, "h2")
+        new_epoch = await services.users.change_password(user, "h2", expected_epoch=epoch)
         assert new_epoch == epoch + 1
         assert not await services.sessions.exists("before")
         assert not await services.sessions.create(user, "late", ttl=60, epoch=epoch)
@@ -147,7 +147,7 @@ def test_register_creates_user_and_session_together():
 def test_rehash_does_not_overwrite_a_changed_password():
     async def scenario(services):
         user = await create_user(services, "alice", "a@x.pl", "old")
-        await services.users.change_password(user, "changed")
+        await services.users.change_password(user, "changed", expected_epoch=0)
         await services.users.rehash_password(user, "old", "rehashed-old")
         assert (await services.users.by_id(user)).password_hash == "changed"
 

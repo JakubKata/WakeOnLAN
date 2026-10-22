@@ -4,6 +4,7 @@ import logging
 
 from .. import validation as validate
 from ..context import Context
+from ..db import User
 from ..dispatcher import Router
 from ..errors import CommandError
 from ..protocol import Cmd, Err, Message, ack
@@ -14,13 +15,14 @@ log = logging.getLogger(__name__)
 router = Router(Role.CLIENT)
 
 
-async def confirm_password(ctx: Context, password: str) -> None:
+async def confirm_password(ctx: Context, password: str) -> User:
     services, user_id = ctx.services, ctx.session.user_id
     services.limiter.require("password_check", user_id)
     user = await services.users.by_id(user_id)
     if user is None or not await services.security.verify_password(user.password_hash, password):
         log.warning("wrong password confirmation for user %d from %s", user_id, ctx.session.peer)
         raise CommandError(Err.INVALID_CREDENTIALS)
+    return user
 
 
 def end_connection(ctx: Context) -> None:
@@ -48,17 +50,24 @@ async def logout_all(ctx: Context) -> Message:
 @router.route(Cmd.CHANGE_PASSWORD, schema=(str, str))
 async def change_password(ctx: Context, old_password: str, new_password: str) -> Message:
     validate.password(new_password)
-    await confirm_password(ctx, old_password)
+    token_hash = ctx.session.token_hash
+    if token_hash is None:
+        end_connection(ctx)
+        raise CommandError(Err.INVALID_CREDENTIALS)
+    user = await confirm_password(ctx, old_password)
 
     services, user_id = ctx.services, ctx.session.user_id
     password_hash = await services.security.hash_password(new_password)
-    epoch = await services.users.change_password(user_id, password_hash)
-    services.registry.kick_user(user_id, keep=ctx.conn)
-    log.info("user %d changed password; other sessions revoked", user_id)
     try:
+        epoch = await services.users.change_password(
+            user_id, password_hash, expected_epoch=user.session_epoch, session_token_hash=token_hash,
+        )
+        services.registry.kick_user(user_id, keep=ctx.conn)
+        log.info("user %d changed password; other sessions revoked", user_id)
         return ack(await start_session(ctx, user_id, epoch))
     except CommandError:
-        # This connection's own session is gone too; it must not stay logged in.
+        # A stale authorization or a later revocation must not leave this
+        # connection logged in behind the dispatcher's periodic session check.
         end_connection(ctx)
         raise
 

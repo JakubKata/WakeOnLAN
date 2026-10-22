@@ -168,7 +168,7 @@ bool WolClient::handle(const Packet& packet) {
   if (packet.command == CMD_WAKE_UP) return handle_wake_up(packet);
   if (packet.command == CMD_UNPAIRED) {
     ESP_LOGW(TAG, "device was removed from the account");
-    if (credentials::mark_unpaired() != ESP_OK) ESP_LOGE(TAG, "could not persist account removal");
+    if (credentials::mark_unpaired(creds_->claim_token) != ESP_OK) ESP_LOGE(TAG, "could not persist account removal");
     return false;
   }
   if (packet.command == CMD_NACK) {

@@ -98,7 +98,9 @@ async def reset_password(ctx: Context, email: str, code: str, new_password: str)
         log.warning("invalid password reset code for %r from %s", email, ctx.session.peer)
         raise CommandError(Err.INVALID_TOKEN)
 
-    epoch = await services.users.change_password(user.id, await services.security.hash_password(new_password))
+    epoch = await services.users.change_password(
+        user.id, await services.security.hash_password(new_password), expected_epoch=user.session_epoch,
+    )
     services.registry.kick_user(user.id)
     log.info("user %d reset their password; all sessions revoked", user.id)
     return ack(await start_session(ctx, user.id, epoch), user.name)

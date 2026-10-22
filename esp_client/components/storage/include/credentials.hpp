@@ -17,6 +17,7 @@ bool load(Credentials& out);
 esp_err_t ensure_identity();
 esp_err_t save_claim_token(const std::string& token);
 esp_err_t mark_paired(const std::string& expected_claim);
-esp_err_t mark_unpaired();
+// Clear the old pairing, but preserve a claim replaced by BLE since this session began.
+esp_err_t mark_unpaired(const std::string& expected_claim);
 esp_err_t clear_claim_token(const std::string& expected_claim);
 }  // namespace credentials
