@@ -118,7 +118,7 @@ pip install -e .
 pytest
 ```
 
-Set `TEST_DATABASE_URL` to a dedicated test PostgreSQL database to run the database and integration suites, e.g. `postgresql://wol:change-me@localhost:5432/postgres`. Without it, those tests are skipped. TLS tests use isolated test certificates; this is not the production certificate provisioning path. The [CI workflow](.github/workflows/ci.yml) defines PostgreSQL integration tests, Android compilation and ESP-IDF builds; a configured workflow is not evidence that it has run successfully.
+Set `TEST_DATABASE_URL` to a dedicated test PostgreSQL database to run the database and integration suites, e.g. `postgresql://wol:change-me@localhost:5432/postgres`. Without it, those tests are skipped. TLS tests use isolated test certificates; this is not the production certificate provisioning path.
 
 ## 3. Android app
 

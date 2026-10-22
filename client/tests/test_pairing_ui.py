@@ -24,11 +24,6 @@ def run_scenario(name: str) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("scenario", ["setup_code", "new_device", "owned_device", "stale_connect"])
+@pytest.mark.parametrize("scenario", ["setup_code", "new_device", "owned_device", "stale_connect", "background_refresh"])
 def test_pairing_behavior(scenario):
     run_scenario(scenario)
-
-
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="Review: background cancellation leaves refreshing=True and disables retry")
-def test_background_during_refresh_allows_retry():
-    run_scenario("background_refresh")

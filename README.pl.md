@@ -118,7 +118,7 @@ pip install -e .
 pytest
 ```
 
-Ustaw `TEST_DATABASE_URL` na osobną testową bazę PostgreSQL, aby uruchomić testy bazy i integracji, np. `postgresql://wol:change-me@localhost:5432/postgres`. Bez tej zmiennej są pomijane. Testy TLS używają odizolowanych certyfikatów testowych; nie jest to ścieżka dostarczania certyfikatów produkcyjnych. [Workflow CI](.github/workflows/ci.yml) definiuje testy integracyjne PostgreSQL, kompilację Androida i buildy ESP-IDF; sama konfiguracja workflow nie oznacza, że zakończył się pomyślnie.
+Ustaw `TEST_DATABASE_URL` na osobną testową bazę PostgreSQL, aby uruchomić testy bazy i integracji, np. `postgresql://wol:change-me@localhost:5432/postgres`. Bez tej zmiennej są pomijane. Testy TLS używają odizolowanych certyfikatów testowych; nie jest to ścieżka dostarczania certyfikatów produkcyjnych.
 
 ## 3. Aplikacja Android
 

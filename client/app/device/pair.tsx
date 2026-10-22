@@ -41,6 +41,7 @@ export default function PairDeviceScreen() {
     timer.current = null;
     wake.current?.();
     wake.current = null;
+    setRefreshing(false);
     void provisioning.cancel();
   };
 
