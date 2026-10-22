@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,8 @@ class Settings:
     db_pool_size: int = 10
     log_level: str = "INFO"
     smtp: SmtpSettings | None = None
+    tls_server_name: str = ""
+    tls_reload_interval: int = 60
 
     @classmethod
     def from_env(cls, env: Mapping[str, str], base_dir: Path) -> Settings:
@@ -43,7 +46,8 @@ class Settings:
             return int(raw)
 
         def path(name: str, default: str) -> Path:
-            resolved = (base_dir / env.get(name, default).strip()).resolve()
+            # Preserve symlinks: ACME replaces their targets during renewal.
+            resolved = (base_dir / env.get(name, default).strip()).absolute()
             if not resolved.is_file():
                 raise ConfigError(f"{name}: file not found: {resolved}")
             return resolved
@@ -68,17 +72,29 @@ class Settings:
         if log_level not in LOG_LEVELS:
             raise ConfigError(f"LOG_LEVEL must be one of {sorted(LOG_LEVELS)}")
 
+        tls_server_name = required("TLS_SERVER_NAME").lower()
+        if len(tls_server_name) > 253 or not re.fullmatch(
+            r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?",
+            tls_server_name,
+        ):
+            raise ConfigError("TLS_SERVER_NAME must be the certificate's public DNS name")
+        reload_interval = env.get("TLS_RELOAD_INTERVAL", "60").strip()
+        if not reload_interval.isdigit() or not 1 <= int(reload_interval) <= 3600:
+            raise ConfigError("TLS_RELOAD_INTERVAL must be between 1 and 3600 seconds")
+
         return cls(
             host=env.get("SERVER_HOST", "0.0.0.0").strip(),
             client_port=client_port,
             device_port=device_port,
-            cert_file=path("TLS_CERT_FILE", "server.crt"),
-            key_file=path("TLS_KEY_FILE", "server.key"),
+            cert_file=path("TLS_CERT_FILE", "certs/server.pem"),
+            key_file=path("TLS_KEY_FILE", "certs/server.pem"),
             database_url=database_url,
             pepper=pepper,
             db_pool_size=int(pool_size),
             log_level=log_level,
             smtp=smtp_settings(env),
+            tls_server_name=tls_server_name,
+            tls_reload_interval=int(reload_interval),
         )
 
 

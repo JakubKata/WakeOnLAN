@@ -12,3 +12,7 @@ CONFIG_SECURE_BOOT=y
 CONFIG_SECURE_BOOT_V2_ENABLED=y
 CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
 CONFIG_SECURE_BOOT_SIGNING_KEY="secure_boot_signing_key.pem"
+
+# Signed updates preserve NVS; an unconfirmed image rolls back after two minutes.
+CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=y
+CONFIG_WOL_ENABLE_OTA=y

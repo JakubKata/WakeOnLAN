@@ -1,0 +1,88 @@
+diff --git a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketClient.java b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketClient.java
+index 6ef8269..06d1405 100644
+--- a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketClient.java
++++ b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TcpSocketClient.java
+@@ -26,6 +26,7 @@ class TcpSocketClient extends TcpSocket {
+     private TcpReceiverTask receiverTask;
+     private Socket socket;
+     private boolean closed = true;
++    private String peerHost;
+ 
+     TcpSocketClient(TcpEventListener receiverListener, Integer id, Socket socket) {
+         super(id);
+@@ -41,13 +42,8 @@ class TcpSocketClient extends TcpSocket {
+ 
+     public void connect(Context context, String address, final Integer port, ReadableMap options, Network network, ReadableMap tlsOptions) throws IOException, GeneralSecurityException {
+         if (socket != null) throw new IOException("Already connected");
+-        if (tlsOptions != null) {
+-            SSLSocketFactory ssf = getSSLSocketFactory(context, tlsOptions);
+-            socket = ssf.createSocket();
+-            ((SSLSocket) socket).setUseClientMode(true);
+-        } else {
+-            socket = new Socket();
+-        }
++        peerHost = address;
++        socket = new Socket();
+         // Get the addresses
+         final String localAddress = options.hasKey("localAddress") ? options.getString("localAddress") : "0.0.0.0";
+         final InetAddress localInetAddress = InetAddress.getByName(localAddress);
+@@ -65,18 +61,19 @@ class TcpSocketClient extends TcpSocket {
+         final int localPort = options.hasKey("localPort") ? options.getInt("localPort") : 0;
+         // bind
+         socket.bind(new InetSocketAddress(localInetAddress, localPort));
+-        socket.connect(new InetSocketAddress(remoteInetAddress, port));
+-        if (socket instanceof SSLSocket) ((SSLSocket) socket).startHandshake();
++        socket.connect(new InetSocketAddress(remoteInetAddress, port), 10000);
++        if (tlsOptions != null) startTLS(context, tlsOptions);
+         startListening();
+     }
+ 
+     public void startTLS(Context context, ReadableMap tlsOptions) throws IOException, GeneralSecurityException {
+         if (socket instanceof SSLSocket) return;
+         SSLSocketFactory ssf = getSSLSocketFactory(context, tlsOptions);
+-        SSLSocket sslSocket = (SSLSocket) ssf.createSocket(socket, socket.getInetAddress().getHostAddress(), socket.getPort(), true);
+-        sslSocket.setUseClientMode(true);
+-        sslSocket.startHandshake();
++        if (peerHost == null) throw new IOException("TLS requires the original peer hostname");
++        SSLSocket sslSocket = (SSLSocket) ssf.createSocket(socket, peerHost, socket.getPort(), true);
++        // Assign before the handshake so destroy() also closes a failed TLS connection.
+         socket = sslSocket;
++        TlsSocketPolicy.handshake(sslSocket);
+     }
+ 
+     private boolean containsKey(ReadableArray array, String key) {
+diff --git a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TlsSocketPolicy.java b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TlsSocketPolicy.java
+new file mode 100644
+index 0000000..4c3690f
+--- /dev/null
++++ b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/TlsSocketPolicy.java
+@@ -0,0 +1,29 @@
++package com.asterinet.react.tcpsocket;
++
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.List;
++import javax.net.ssl.SSLParameters;
++import javax.net.ssl.SSLSocket;
++
++/** Application policy: CA trust, hostname verification and TLS 1.2 or newer. */
++final class TlsSocketPolicy {
++    private TlsSocketPolicy() {}
++
++    static void handshake(SSLSocket socket) throws IOException {
++        socket.setUseClientMode(true);
++        SSLParameters parameters = socket.getSSLParameters();
++        parameters.setEndpointIdentificationAlgorithm("HTTPS");
++        List<String> protocols = new ArrayList<>();
++        for (String protocol : socket.getSupportedProtocols()) {
++            if (protocol.equals("TLSv1.3") || protocol.equals("TLSv1.2")) protocols.add(protocol);
++        }
++        if (protocols.isEmpty()) throw new IOException("TLS 1.2 or newer is required");
++        parameters.setProtocols(protocols.toArray(new String[0]));
++        socket.setSSLParameters(parameters);
++        int previousTimeout = socket.getSoTimeout();
++        socket.setSoTimeout(10000);
++        socket.startHandshake();
++        socket.setSoTimeout(previousTimeout);
++    }
++}

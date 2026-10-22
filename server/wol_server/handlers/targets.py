@@ -9,10 +9,11 @@ from ..dispatcher import Router
 from ..errors import CommandError
 from ..protocol import Cmd, Err, Message, ack
 from ..session import Role
-from .devices import DEVICE_REQUEST_TIMEOUT
 
 log = logging.getLogger(__name__)
 router = Router(Role.CLIENT)
+
+DEVICE_REQUEST_TIMEOUT = 5.0
 
 
 def serialize(target: Target) -> dict[str, object]:
@@ -65,7 +66,7 @@ async def wake_up(ctx: Context, target_id: int) -> Message:
     if target.device_id is None:
         raise CommandError(Err.NO_DEVICE)
     link = services.registry.device(target.device_id)
-    if link is None:
+    if link is None or link.user_id != user_id:
         raise CommandError(Err.DEVICE_OFFLINE)
 
     if not await link.request(Cmd.WAKE_UP, target.mac, timeout=DEVICE_REQUEST_TIMEOUT):

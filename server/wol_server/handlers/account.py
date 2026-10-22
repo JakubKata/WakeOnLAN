@@ -77,8 +77,9 @@ async def delete_account(ctx: Context, password: str) -> Message:
     await confirm_password(ctx, password)
 
     services, user_id = ctx.services, ctx.session.user_id
-    for device_id in await services.users.delete(user_id):
-        await services.registry.unpair_device(device_id)
+    async with services.registry.device_owner(user_id):
+        for device_id in await services.users.delete(user_id):
+            await services.registry.unpair_device(device_id, user_id)
     services.registry.kick_user(user_id, keep=ctx.conn)
     end_connection(ctx)
     log.info("user %d deleted their account", user_id)

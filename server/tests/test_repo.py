@@ -4,6 +4,7 @@ import pytest
 
 from helpers import create_user, requires_database, temporary_database, temporary_services
 from wol_server.db.repo import MAX_DEVICES_PER_USER, MAX_SESSIONS_PER_USER
+from wol_server.db import schema
 from wol_server.db.schema import SchemaError
 from wol_server.errors import CommandError
 from wol_server.protocol import Err
@@ -22,10 +23,37 @@ def with_services(scenario):
 def test_migrate_is_idempotent_and_refuses_newer_schema():
     async def scenario():
         async with temporary_database() as db:
-            assert await db.migrate() == 3
+            assert await db.migrate() == 4
             await db.pool.execute("INSERT INTO schema_migrations (version) VALUES (99)")
             with pytest.raises(SchemaError):
                 await db.migrate()
+
+    asyncio.run(scenario())
+
+
+def test_upgrade_invalidates_unbound_claims_and_preserves_legacy_recovery(monkeypatch):
+    migrations = schema.MIGRATIONS
+
+    async def scenario():
+        monkeypatch.setattr(schema, "MIGRATIONS", migrations[:3])
+        async with temporary_database() as db:
+            user = await db.pool.fetchval(
+                "INSERT INTO users (name, email, password_hash) VALUES ('alice', 'a@x.pl', 'h') RETURNING id"
+            )
+            await db.pool.execute(
+                "INSERT INTO claims (token_hash, user_id, device_name, expires_at)"
+                " VALUES ('unbound', $1, 'Office', now() + interval '1 hour')", user,
+            )
+            await db.pool.execute(
+                "INSERT INTO devices (id, user_id, name, secret_hash, next_secret_hash)"
+                " VALUES ('legacy', $1, 'Office', 'old', 'pending')", user,
+            )
+            monkeypatch.setattr(schema, "MIGRATIONS", migrations)
+            assert await db.migrate() == 4
+            assert await db.pool.fetchval("SELECT count(*) FROM claims") == 0
+            row = await db.pool.fetchrow("SELECT * FROM devices WHERE id = 'legacy'")
+            assert row["secret_hash"] == "old" and row["recovery_secret_hash"] == "pending"
+            assert row["enrollment_hash"] is None
 
     asyncio.run(scenario())
 
@@ -95,7 +123,7 @@ def test_revocation_removes_sessions_resets_and_claims():
         user = await create_user(services, "alice", "a@x.pl", "h")
         await services.sessions.create(user, "tok", ttl=60, epoch=0)
         await services.resets.create(user, "code", ttl=60)
-        await services.claims.create(user, "claim", "ESP", ttl=60)
+        await services.claims.create(user, "claim", "ESP", "dev", ttl=60)
         assert await services.users.revoke_all(user) == 1
         for table in ("sessions", "password_resets", "claims"):
             assert await services.db.pool.fetchval(f"SELECT count(*) FROM {table}") == 0
@@ -129,8 +157,8 @@ def test_rehash_does_not_overwrite_a_changed_password():
 def test_claim_is_single_use_and_replaced():
     async def scenario(services):
         user = await create_user(services, "alice", "a@x.pl", "h")
-        await services.claims.create(user, "claim-1", "ESP", ttl=60)
-        await services.claims.create(user, "claim-2", "ESP", ttl=60)
+        await services.claims.create(user, "claim-1", "ESP", "dev1", ttl=60)
+        await services.claims.create(user, "claim-2", "ESP", "dev1", ttl=60)
         assert await services.devices.redeem_claim("claim-1", "dev1", "s") is None
         device = await services.devices.redeem_claim("claim-2", "dev1", "s")
         assert device.user_id == user and device.name == "ESP"
@@ -139,10 +167,77 @@ def test_claim_is_single_use_and_replaced():
     with_services(scenario)
 
 
+def test_claim_binding_and_retry_cannot_change_identity_or_ownership():
+    async def scenario(services):
+        alice = await create_user(services, "alice", "a@x.pl", "h")
+        bob = await create_user(services, "bob", "b@x.pl", "h")
+        await services.claims.create(alice, "alice-claim", "Office", "dev", ttl=60)
+        await services.claims.create(bob, "bob-claim", "Stolen", "dev", ttl=60)
+        assert await services.devices.redeem_claim("alice-claim", "wrong-id", "s") is None
+        device = await services.devices.redeem_claim("alice-claim", "dev", "s")
+        assert device.user_id == alice
+        assert (await services.devices.redeem_claim("alice-claim", "dev", "s")).user_id == alice
+        assert await services.devices.redeem_claim("alice-claim", "dev", "wrong-secret") is None
+        assert await services.devices.redeem_claim("bob-claim", "dev", "s") is None
+        assert await services.devices.list(bob) == []
+        assert (await services.devices.list(alice))[0].name == "Office"
+        with pytest.raises(CommandError) as exc:
+            await services.claims.create(bob, "another", "Stolen", "dev", ttl=60)
+        assert exc.value.code is Err.DUPLICATE
+
+    with_services(scenario)
+
+
+def test_concurrent_retries_commit_one_device():
+    async def scenario(services):
+        user = await create_user(services, "alice", "a@x.pl", "h")
+        await services.claims.create(user, "claim", "Office", "dev", ttl=60)
+        results = await asyncio.gather(*(
+            services.devices.redeem_claim("claim", "dev", "s") for _ in range(5)
+        ))
+        assert all(device is not None and device.user_id == user for device in results)
+        assert len(await services.devices.list(user)) == 1
+        assert await services.db.pool.fetchval("SELECT count(*) FROM claims") == 0
+
+    with_services(scenario)
+
+
+def test_consumed_claim_cannot_resurrect_a_removed_device():
+    async def scenario(services):
+        user = await create_user(services, "alice", "a@x.pl", "h")
+        await services.claims.create(user, "claim", "Office", "dev", ttl=60)
+        assert await services.devices.redeem_claim("claim", "dev", "s") is not None
+        await services.devices.delete(user, "dev")
+        assert await services.devices.redeem_claim("claim", "dev", "s") is None
+        assert await services.devices.authenticate("dev", "s") is None
+        assert await services.devices.list(user) == []
+
+    with_services(scenario)
+
+
+@pytest.mark.parametrize("kept_secret", ["original", "recovery"])
+def test_pre_upgrade_interrupted_rotation_recovers_once(kept_secret):
+    async def scenario(services):
+        user = await create_user(services, "alice", "a@x.pl", "h")
+        await services.db.pool.execute(
+            "INSERT INTO devices (id, user_id, name, secret_hash, recovery_secret_hash)"
+            " VALUES ('legacy-device-id', $1, 'Office', 'original', 'recovery')", user,
+        )
+        assert await services.devices.authenticate("legacy-device-id", "wrong") is None
+        assert await services.devices.authenticate("legacy-device-id", kept_secret) is not None
+        other = "recovery" if kept_secret == "original" else "original"
+        assert await services.devices.authenticate("legacy-device-id", other) is None
+        assert await services.db.pool.fetchval(
+            "SELECT recovery_secret_hash FROM devices WHERE id = 'legacy-device-id'"
+        ) is None
+
+    with_services(scenario)
+
+
 def test_expired_claim_is_rejected():
     async def scenario(services):
         user = await create_user(services, "alice", "a@x.pl", "h")
-        await services.claims.create(user, "claim", "ESP", ttl=-1)
+        await services.claims.create(user, "claim", "ESP", "dev", ttl=-1)
         assert await services.devices.redeem_claim("claim", "dev", "s") is None
 
     with_services(scenario)
@@ -152,10 +247,10 @@ def test_device_limit():
     async def scenario(services):
         user = await create_user(services, "alice", "a@x.pl", "h")
         for i in range(MAX_DEVICES_PER_USER):
-            await services.claims.create(user, f"c{i}", "ESP", ttl=60)
+            await services.claims.create(user, f"c{i}", "ESP", f"d{i}", ttl=60)
             await services.devices.redeem_claim(f"c{i}", f"d{i}", "s")
         with pytest.raises(CommandError) as exc:
-            await services.claims.create(user, "extra", "ESP", ttl=60)
+            await services.claims.create(user, "extra", "ESP", "extra-device", ttl=60)
         assert exc.value.code is Err.LIMIT_REACHED
 
     with_services(scenario)
@@ -165,11 +260,11 @@ def test_concurrent_claims_respect_device_limit():
     async def scenario(services):
         user = await create_user(services, "alice", "a@x.pl", "h")
         for i in range(MAX_DEVICES_PER_USER - 1):
-            await services.claims.create(user, f"c{i}", "ESP", ttl=60)
+            await services.claims.create(user, f"c{i}", "ESP", f"d{i}", ttl=60)
             await services.devices.redeem_claim(f"c{i}", f"d{i}", "s")
 
         async def claim_and_redeem(n):
-            await services.claims.create(user, f"race{n}", "ESP", ttl=60)
+            await services.claims.create(user, f"race{n}", "ESP", f"race-dev{n}", ttl=60)
             return await services.devices.redeem_claim(f"race{n}", f"race-dev{n}", "s")
 
         await asyncio.gather(*(claim_and_redeem(n) for n in range(5)), return_exceptions=True)
@@ -179,45 +274,11 @@ def test_concurrent_claims_respect_device_limit():
     with_services(scenario)
 
 
-def test_secret_rotation():
-    async def scenario(services):
-        user = await create_user(services, "alice", "a@x.pl", "h")
-        await services.claims.create(user, "c", "ESP", ttl=60)
-        await services.devices.redeem_claim("c", "dev", "old")
-        await services.devices.stage_secret(user, "dev", "new")
-        assert await services.devices.authenticate("dev", "new") is not None
-        assert await services.devices.authenticate("dev", "old") is None
-        assert await services.devices.authenticate("dev", "wrong") is None
-
-        # Already promoted by authenticate(): still reported as current.
-        assert await services.devices.promote_secret("dev", "new")
-        await services.devices.stage_secret(user, "dev", "a")
-        await services.devices.stage_secret(user, "dev", "b")
-        assert not await services.devices.promote_secret("dev", "a")
-        assert await services.devices.promote_secret("dev", "b")
-        assert await services.devices.authenticate("dev", "b") is not None
-
-    with_services(scenario)
-
-
-def test_login_with_current_secret_drops_staged_one():
-    async def scenario(services):
-        user = await create_user(services, "alice", "a@x.pl", "h")
-        await services.claims.create(user, "c", "ESP", ttl=60)
-        await services.devices.redeem_claim("c", "dev", "old")
-        await services.devices.stage_secret(user, "dev", "new")
-        assert await services.devices.authenticate("dev", "old") is not None
-        assert await services.devices.authenticate("dev", "new") is None
-        assert await services.devices.authenticate("dev", "old") is not None
-
-    with_services(scenario)
-
-
 def test_targets_are_scoped_and_survive_device_removal():
     async def scenario(services):
         alice = await create_user(services, "alice", "a@x.pl", "h")
         bob = await create_user(services, "bob", "b@x.pl", "h")
-        await services.claims.create(alice, "c", "ESP", ttl=60)
+        await services.claims.create(alice, "c", "ESP", "dev", ttl=60)
         await services.devices.redeem_claim("c", "dev", "s")
 
         target = await services.targets.add(alice, "dev", "AA:BB:CC:DD:EE:FF", "PC")
@@ -241,7 +302,7 @@ def test_delete_user_cascades():
     async def scenario(services):
         user = await create_user(services, "alice", "a@x.pl", "h")
         await services.sessions.create(user, "tok", ttl=60, epoch=0)
-        await services.claims.create(user, "c", "ESP", ttl=60)
+        await services.claims.create(user, "c", "ESP", "dev", ttl=60)
         await services.devices.redeem_claim("c", "dev", "s")
         await services.targets.add(user, "dev", "AA:BB:CC:DD:EE:FF", "PC")
         await services.users.delete(user)

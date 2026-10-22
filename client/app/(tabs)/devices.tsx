@@ -24,30 +24,6 @@ export default function DevicesScreen() {
   const [renaming, setRenaming] = useState<Device | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const rotate = (device: Device) => {
-    Alert.alert(
-      t.devices.rotateTitle,
-      t.devices.rotateMessage(device.name),
-      [
-        { text: t.common.cancel, style: "cancel" },
-        {
-          text: t.devices.rotateConfirm,
-          onPress: async () => {
-            setBusyId(device.id);
-            try {
-              await api.rotateDeviceSecret(device.id);
-              Alert.alert(t.common.done, t.devices.rotated);
-            } catch (err) {
-              Alert.alert(t.common.error, describeError(err));
-            } finally {
-              setBusyId(null);
-            }
-          },
-        },
-      ],
-    );
-  };
-
   const remove = (device: Device) => {
     Alert.alert(
       t.devices.removeTitle,
@@ -99,13 +75,6 @@ export default function DevicesScreen() {
             <Muted>{lastSeen(item)}</Muted>
             <View style={styles.actions}>
               <Button title={t.devices.rename} variant="secondary" onPress={() => setRenaming(item)} disabled={busyId !== null} />
-              <Button
-                title={t.devices.rotate}
-                variant="secondary"
-                onPress={() => rotate(item)}
-                loading={busyId === item.id}
-                disabled={busyId !== null || !item.online}
-              />
               <Button title={t.common.remove} variant="danger" onPress={() => remove(item)} disabled={busyId !== null} />
             </View>
           </Card>

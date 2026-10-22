@@ -1,56 +1,51 @@
 # Wake on LAN
 
-[Polski](README.md) | **English**
+[Polski](README.pl.md) | **English**
 
-Remote Wake-on-LAN for computers from outside the local network. The phone app sends a command to the server, and the server forwards it to an ESP32 device on the home network, which broadcasts the magic packet.
+Remote Wake-on-LAN for computers outside the local network. The phone sends a command to the server, which forwards it to an ESP32 on the home network. The ESP32 broadcasts the magic packet. It opens the outbound server connection itself; the home router needs no port forwarding.
 
-```
-App (Android)  --TLS:8443-->  Server (Python)  <--TLS:8444--  ESP32  --UDP magic packet-->  computer
-```
+The relay keeps its own JSON-lines protocol over TCP/TLS and Python `asyncio`. BLE is used for local provisioning; no Redis, RabbitMQ or MQTT broker is required.
 
-The ESP32 opens the connection to the server itself, so no ports need to be opened on the home network. Only the server has to be publicly reachable.
+The customer plugs in the device, signs in to the Android app, scans the device's unique QR label and selects their home Wi-Fi. The app provisions the device over authenticated, encrypted BLE and automatically binds it to the account. There is no serial-console setup or manual device-secret control.
+
+| Connection | Purpose |
+|---|---|
+| Android → server, TLS 8443 | Account, devices, wake requests |
+| ESP32 → server, TLS 8444 | Authentication, wake commands and acknowledgements |
+| Android ↔ ESP32, BLE | Local setup using Espressif Security 2 |
+| ESP32 → computer, UDP | Wake-on-LAN magic packet |
 
 | Directory | Contents | Technology |
 |---|---|---|
-| [`server/`](server/) | relay server, user accounts, database | Python 3.11+, asyncio, PostgreSQL |
-| [`client/`](client/) | mobile app | Expo (React Native), TypeScript |
-| [`esp_client/`](esp_client/) | firmware for the home network device | ESP-IDF, C++ |
+| [`server/`](server/) | Relay, accounts, database, ACME deployment | Python 3.11+, asyncio, PostgreSQL |
+| [`client/`](client/) | Android app and native BLE provisioning module | Expo, React Native, TypeScript, Kotlin |
+| [`esp_client/`](esp_client/) | Device firmware and manufacturing configuration | ESP-IDF, C++ |
 
-The full description of the protocol, commands, limits and error codes is in [`server/PROTOCOL.en.md`](server/PROTOCOL.en.md).
+The complete commands, limits, enrollment rules and error codes are in [`server/PROTOCOL.md`](server/PROTOCOL.md). The detailed code guide is in [`docs/documentation_en.html`](docs/documentation_en.html).
 
 ## Requirements
 
-- Server: Python 3.11 or newer and PostgreSQL (or Docker with Docker Compose).
-- App: Node.js 20.19.4 or newer, npm, Android SDK (local builds) or an Expo account (EAS builds).
-- Firmware: ESP-IDF 5.x or 6.x and an ESP32 board.
-- OpenSSL to generate the TLS certificate.
+- Server: Python 3.11+ and PostgreSQL, or Docker with Docker Compose.
+- A public DNS name pointing to the server. For the included ACME deployment, inbound TCP 80 must be available for HTTP-01 validation; clients use TCP 8443 and 8444.
+- App: Node.js 20.19.4+, npm and Android SDK, or EAS Build. A physical Android phone is needed for BLE acceptance tests.
+- Firmware: ESP-IDF 5.5.1 and a BLE-capable ESP32 board with at least 4 MB flash and a physical setup button. The per-device provisioning data must be prepared during manufacturing.
 
-Dependencies:
-
-| Part | Dependency file | Installation |
+| Part | Dependency files | Installation |
 |---|---|---|
-| server (runtime) | `server/requirements.txt`, `server/pyproject.toml` | `pip install -r requirements.txt` |
-| server (tests) | `server/requirements-dev.txt` | `pip install -r requirements-dev.txt` |
-| app | `client/package.json`, `client/package-lock.json` | `npm ci` |
-| firmware | `esp_client/components/network/idf_component.yml` | fetched automatically by `idf.py build` |
+| Server runtime | `server/requirements.txt`, `server/pyproject.toml` | `pip install -r requirements.txt` |
+| Server tests | `server/requirements-dev.txt` | `pip install -r requirements-dev.txt` |
+| App | `client/package.json`, `client/package-lock.json` | `npm ci` |
+| Firmware | `esp_client/components/network/idf_component.yml` | Fetched by `idf.py build` |
 
-## 1. TLS certificate
+## 1. TLS certificate lifecycle
 
-All three parts use the same certificate. The app and the ESP32 pin it, so without it they will not connect to the server. The name in the certificate must match the server address (below is an example for the IP address `192.168.1.10`; for a domain use `DNS:your.domain`):
+Use a certificate from a public CA trusted by Android and the ESP-IDF root certificate bundle. Set the same DNS hostname in the server certificate configuration, app configuration and firmware. Clients verify the chain, hostname and certificate validity; the server's leaf certificate is not copied into the app or firmware.
 
-```bash
-cd server
-openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
-  -keyout server.key -out server.crt \
-  -subj "/CN=192.168.1.10" -addext "subjectAltName=IP:192.168.1.10"
-```
+The included Compose deployment obtains and renews the certificate through ACME automatically. It publishes the validated certificate chain and private key atomically to a restricted runtime volume. The server checks for updates every `TLS_RELOAD_INTERVAL` seconds (default 60), validates the replacement and uses a new TLS context for new connections. Existing connections remain open. An invalid replacement is rejected and logged; the previously loaded context stays active. The ACME publisher and server also validate the full WebPKI path against their platform CA stores, so keep the deployment images and their trust stores updated.
 
-Then copy the certificate (without the key):
+Routine certificate renewal therefore needs no customer action, app release or firmware flash. Root CA changes are different: keep the firmware trust bundle maintained, introduce replacement roots before switching the server chain, and plan recovery for devices that have been offline for a long time. Do not disable verification to work around expired certificates or a bad clock.
 
-- `server/server.crt` to `client/assets/server.pem`,
-- `server/server.crt` to `esp_client/main/certs/server.crt`.
-
-Certificate and key files are in `.gitignore`. The `server.key` key stays on the server only.
+Monitor ACME health, renewal failures and the server's expiry warnings. Automatic renewal still depends on DNS, network reachability and a functioning host. A certificate that really expires must be rejected.
 
 ## 2. Server
 
@@ -61,27 +56,39 @@ cd server
 cp .env.example .env
 ```
 
-In `.env` set at least:
+Set at least:
 
-- `TOKEN_PEPPER`: a random string of at least 32 characters: `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Changing it invalidates all sessions and paired devices.
-- `DATABASE_URL`: the PostgreSQL database URL (set automatically with Docker Compose).
-- `SMTP_*`: optional, used to send password reset codes. Without `SMTP_HOST` password reset is disabled.
+- `TLS_SERVER_NAME`: the public DNS name, e.g. `wol.example.com`, matching the certificate's DNS SAN.
+- `ACME_EMAIL`: contact address for the ACME account.
+- `TOKEN_PEPPER`: a random secret of at least 32 characters, e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Back it up securely; changing it invalidates sessions and device credentials.
+- `POSTGRES_PASSWORD`: password for the bundled database. Follow the URL-safe character restriction in `.env.example`.
+- `SMTP_*`: optional password-reset delivery. Without `SMTP_HOST`, password reset is disabled.
 
 All variables are described in [`server/.env.example`](server/.env.example).
 
-### Running in Docker
+### Docker deployment
+
+Point the domain's A/AAAA records at this host, open TCP 80, 8443 and 8444, then run:
 
 ```bash
-cd server
-mkdir certs
-cp server.crt server.key certs/
-# also set POSTGRES_PASSWORD in .env
 docker compose up -d --build
+docker compose ps
+docker compose logs acme server
 ```
 
-Compose starts PostgreSQL 16 and the server on ports 8443 (app) and 8444 (ESP32).
+Compose starts PostgreSQL 16, obtains the initial certificate and starts the server after the ACME runtime is healthy. The ACME service checks renewal about every 12 hours with jitter and retries failures. Only the ACME service receives the `acme-state` volume; the application receives the runtime certificate volume read-only. Back up the database, ACME state and pepper securely.
+
+To test renewal against the CA's staging service:
+
+```bash
+docker compose exec acme certbot renew --cert-name wol --dry-run
+```
+
+Do not add `--run-deploy-hooks` to that staging check. The included service uses standalone HTTP-01 and needs port 80 free. If another web server owns that port, configure a managed webroot or DNS-01 ACME deployment separately and provide its certificate files to the application.
 
 ### Running locally
+
+Use an externally managed ACME certificate and set `TLS_CERT_FILE` to its full chain and `TLS_KEY_FILE` to its private key. Keep renewal symlinks intact; do not copy a one-off certificate into the repository. Set `DATABASE_URL` for your PostgreSQL instance.
 
 ```bash
 cd server
@@ -93,14 +100,14 @@ pip install -e .
 python -m wol_server
 ```
 
-Create the database beforehand, e.g. as the `postgres` superuser:
+Create the database first, e.g. as the `postgres` superuser:
 
 ```sql
 CREATE ROLE wol LOGIN PASSWORD 'change-me';
 CREATE DATABASE wol OWNER wol;
 ```
 
-The server creates the database schema itself on startup.
+The server applies forward-only schema migrations on startup. Protocol v3 invalidates unused v2 claims but retains existing device authentication credentials and one-time recovery for credentials left pending by the old implementation. See the protocol's upgrade section before updating an existing deployment.
 
 ### Tests
 
@@ -111,59 +118,83 @@ pip install -e .
 pytest
 ```
 
-Tests that use PostgreSQL are skipped until you set `TEST_DATABASE_URL`, e.g. `TEST_DATABASE_URL=postgresql://wol:change-me@localhost:5432/postgres`.
+Set `TEST_DATABASE_URL` to a dedicated test PostgreSQL database to run the database and integration suites, e.g. `postgresql://wol:change-me@localhost:5432/postgres`. Without it, those tests are skipped. TLS tests use isolated test certificates; this is not the production certificate provisioning path. The [CI workflow](.github/workflows/ci.yml) defines PostgreSQL integration tests, Android compilation and ESP-IDF builds; a configured workflow is not evidence that it has run successfully.
 
-## 3. Mobile app
+## 3. Android app
 
-Set the server address in [`client/app.json`](client/app.json) under `expo.extra.serverHost` and `expo.extra.serverPort` (default 8443). The certificate must be in `client/assets/server.pem` (see section 1).
+Set `expo.extra.serverHost` in [`client/app.json`](client/app.json) to the public DNS name, and `serverPort` to the client port (default 8443).
 
 ```bash
 cd client
 npm ci
-npm run android     # builds and installs a development build on a connected phone/emulator
-npm start           # Metro server for an already installed development build
-npm run build:apk   # installable APK via EAS Build ("preview" profile)
-npm run typecheck   # TypeScript type check
+npm run android     # native development build on a connected phone/emulator
+npm start           # Metro for an installed development build
+npm run build:apk   # APK through EAS Build, preview profile
+npm run typecheck
 ```
 
-The app is in Polish when the phone's language is Polish and in English otherwise. All texts are in [`client/src/i18n.ts`](client/src/i18n.ts).
+The app uses native TLS and BLE provisioning modules, so Expo Go is not supported. The included `patch-package` patch for the pinned `react-native-tcp-socket` version enforces Android hostname verification and TLS 1.2+. Keep the patch and the mandatory `postinstall` check; do not build for production with `npm --ignore-scripts`.
 
-The app uses the native module `react-native-tcp-socket`, so it does not work in Expo Go. You need a development build (`expo-dev-client`) or a built APK.
+Grant camera and nearby Bluetooth permissions when prompted. On Android versions that require location permission for BLE scanning, grant it for setup. The app is Polish when the phone uses Polish and English otherwise; texts are in [`client/src/i18n.ts`](client/src/i18n.ts).
 
-## 4. ESP32 firmware
+## 4. ESP32 firmware and manufacturing
+
+The device needs unique manufacturing provisioning data before delivery. Generate a different SRP username/password and salt/verifier for each unit, provision its encrypted NVS data and attach the corresponding QR label. The QR password authorizes local configuration; protect it like a device credential. Never ship a shared example password or log QR contents. The customer does not generate certificates or flash credentials.
 
 ```bash
 cd esp_client
 idf.py set-target esp32
-idf.py menuconfig     # "Wake-on-LAN client" menu
-idf.py build flash monitor
+idf.py menuconfig     # Wake-on-LAN client
+idf.py build
 ```
 
-In the `Wake-on-LAN client` menu set:
+Set the product's public `WOL_SERVER_HOST`, device port `WOL_SERVER_PORT` (default 8444) and the setup-button GPIO for the actual board. Wi-Fi credentials and cloud claim tokens are supplied through BLE; they are not build settings. Firmware uses the ESP-IDF certificate bundle rather than a server certificate asset.
 
-- `WOL_WIFI_SSID`, `WOL_WIFI_PASSWORD`: the Wi-Fi network the computers to wake are on,
-- `WOL_SERVER_HOST`, `WOL_SERVER_PORT`: server address and device port (default 8444). The address must match the name in the certificate,
-- `WOL_CLAIM_TOKEN`: optional pairing token (see below).
+### Per-unit factory files
 
-**Warning:** the default configuration ([`sdkconfig.defaults`](esp_client/sdkconfig.defaults)) enables flash and NVS encryption. The first boot permanently writes the key to the chip's eFuse. The production build with Secure Boot v2 is irreversible. Before flashing for the first time, read the "Securing data on the ESP32" section in [`server/PROTOCOL.en.md`](server/PROTOCOL.en.md).
+In the activated ESP-IDF 5.5.1 Python environment, before the unit's first boot:
+
+```bash
+# From esp_client/; use a new, private output directory for every physical unit.
+pip install -r tools/requirements.txt
+python tools/provision_factory.py --output /secure/manufacturing/unit-001
+```
+
+The tool uses Espressif's SRP implementation and writes `label.json`, printable `label.svg`, the salt/verifier `factory.csv`, encrypted `nvs.bin` and `keys/nvs_keys.bin`. Keep the directory private and never reuse a unit's files. The QR carries the username/password; firmware stores the salt/verifier, not the plaintext QR password.
+
+After building and checking the board-specific configuration, flash all images and both per-unit NVS files in one operation without automatically booting midway:
+
+```bash
+cd build
+python -m esptool --chip esp32 --port PORT --after no_reset write_flash @flash_args \
+  0x11000 /secure/manufacturing/unit-001/nvs.bin \
+  0x17000 /secure/manufacturing/unit-001/keys/nvs_keys.bin
+```
+
+Replace `PORT` with the actual serial port and reset manually only after the complete operation succeeds. The offsets match this repository's partition table. This is the **new-unit** manufacturing path; previously encrypted or released chips require a dedicated service procedure. Do not overwrite an existing unit's NVS or encryption keys.
+
+### Signed updates
+
+Use the release profile with Secure Boot, anti-rollback and `WOL_ENABLE_OTA`. Configure `WOL_FIRMWARE_URL` to a fixed HTTPS image URL for this product and target; it must not be left empty for production. Each image must be signed by the retained signing key, keep the same project name, and have a strictly increasing numeric `PROJECT_VER` (`major.minor.patch`, initial value `2.0.0`). Set the secure version according to the anti-rollback release policy.
+
+The fixed URL must serve the image directly with HTTP 200 and `Content-Length`, without redirects or chunked transfer. A stable image checks approximately daily independently of relay authentication, so a still-trusted update host can recover a relay trust failure. It writes the inactive OTA slot and confirms new firmware only after cloud authentication. Without confirmation within 120 seconds it rolls back. Signed firmware carries trust-bundle updates; deploy new roots before changing server trust chains. The previous single-app partition layout needs a controlled service migration before this OTA path can be used. See the [update and clock sections](server/PROTOCOL.md#firmware-updates-and-trust-store-maintenance) for recovery boundaries and the unauthenticated-SNTP limitation.
+
+**Hardware security:** [`sdkconfig.defaults`](esp_client/sdkconfig.defaults) enables flash and NVS encryption. The first boot writes encryption state to eFuse. The release profile enables Secure Boot v2 and is irreversible. Prepare and retain the signing key outside the repository, verify board revision and partition layout, and read [ESP32 data protection](server/PROTOCOL.md#securing-data-on-the-esp32) before flashing. An existing customer's flash must not be erased as a routine migration step.
 
 ## Usage
 
-1. Register an account in the app.
-2. Pair the ESP32: on the devices tab choose "Pair device". The app shows a one-time token valid for 10 minutes. Enter it on the ESP32 serial console (`idf.py monitor`):
-   ```
-   claim <token>
-   ```
-   or compile it into `WOL_CLAIM_TOKEN` before flashing. After pairing, the device logs in by itself on every boot.
-3. Add a target: the computer's MAC address (e.g. `AA:BB:CC:DD:EE:FF`) and an ESP32 device on the same network.
-4. Press the wake button next to the target. The app shows success once the ESP32 confirms the magic packet was sent.
+1. Plug in the provisioned device and sign in to the Android app.
+2. Choose pairing, scan the unit's QR label and let the app find and authenticate it over BLE.
+3. Name the device, select a compatible 2.4 GHz WPA2/WPA3 Personal Wi-Fi network and enter its password. Wait for confirmation that the device is online on your account.
+4. Add a target with the computer's MAC address and the device on the same network.
+5. Press wake. Success means the ESP32 acknowledged sending the magic packet; the computer must also have Wake-on-LAN enabled in BIOS/UEFI and its network adapter.
 
-The computer must have Wake-on-LAN enabled in BIOS/UEFI and in the network adapter settings.
+On an unpaired unit, boot opens a ten-minute BLE setup window. For Wi-Fi recovery on a paired unit, hold the dedicated active-low setup button for three seconds during power-on (default GPIO 4; verify your board) and use the same QR credential. Changing Wi-Fi preserves the device identity and account owner. Transfer to another account requires the previous owner to remove the device first. Network loss and failed authentication do not reset ownership. Five failed local authentication attempts close the setup window. Devices with legacy pre-v3 IDs can recover Wi-Fi while owned by the signed-in account; re-enrolling a removed legacy identity requires service migration.
 
-## Security
+## Security and release validation
 
-- All communication is encrypted with TLS (min. 1.2), and the server certificate is pinned in the app and the firmware.
-- Passwords are hashed with Argon2, and session tokens and device secrets are stored in the database as an HMAC with `TOKEN_PEPPER`.
-- The app stores the session token, not the password, in the system's secure storage (Keystore). If the storage cannot be read, the app goes to the login screen.
-- The server limits the number of connections and login attempts, concurrent ones included. Details in [`server/PROTOCOL.en.md`](server/PROTOCOL.en.md).
-- The device secret can be changed from the app (rotation). If the ESP32 does not confirm the new secret, the server disconnects it, and on reconnect whichever secret the device logs in with stays valid. A failed rotation therefore does not lock the device out.
+- TLS validates chain, hostname and dates on both clients; BLE setup uses SRP6a and AES-GCM.
+- The ESP32 persists its random 256-bit device secret before enrollment. Its ID is derived from the secret; account-bound claims cannot replace an existing owner. Interrupted enrollment can resume with the saved credentials.
+- The database stores token and device-secret HMACs using `TOKEN_PEPPER`; account passwords use Argon2. The app stores its session token in Android secure storage, not the account password.
+- Wi-Fi passwords travel only through the authenticated local setup channel. The app does not expose cloud claim tokens or manual secret controls.
+- Test real hardware before release: wrong QR/password, Wi-Fi errors, permission denial, power loss during setup, lost claim acknowledgements, offline recovery, certificate renewal and rejection of invalid/expired/wrong-host certificates. Passing server tests or TypeScript checks does not replace a native Android build and ESP32 acceptance tests.

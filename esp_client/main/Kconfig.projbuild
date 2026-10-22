@@ -1,41 +1,39 @@
 menu "Wake-on-LAN client"
 
-    config WOL_WIFI_SSID
-        string "WiFi SSID"
-        default ""
-
-    config WOL_WIFI_PASSWORD
-        string "WiFi password"
-        default ""
-        help
-            Leave empty for an open network.
-
     config WOL_SERVER_HOST
-        string "Server host"
-        default "192.168.1.10"
+        string "Public DNS name of the relay server"
+        default "wol.example.com"
         help
-            Must match the CN/SAN of the server certificate unless
-            WOL_SKIP_CN_CHECK is enabled.
+            Must match the SAN of the publicly trusted server certificate.
+            This value is shared by all units; customer Wi-Fi is configured by BLE.
 
     config WOL_SERVER_PORT
         int "Server device port"
         range 1 65535
         default 8444
 
-    config WOL_CLAIM_TOKEN
-        string "Claim token"
-        default ""
+    config WOL_SETUP_GPIO
+        int "Setup button GPIO (active low, hold 3 seconds at power-on)"
+        range 0 39
+        default 4
         help
-            One-time token from CREATE_CLAIM, used only while the device has
-            no credentials stored in NVS. Valid for 10 minutes. A token entered
-            on the serial console ("claim <token>") takes precedence; a token
-            the server has consumed or rejected is never sent again.
+            Use a dedicated non-strapping input suitable for the production board.
+            This opens secure setup for 10 minutes and never erases account identity.
 
-    config WOL_SKIP_CN_CHECK
-        bool "Skip server certificate hostname check"
+    config WOL_ENABLE_OTA
+        bool "Signed HTTPS firmware updates"
+        depends on SECURE_BOOT
         default n
         help
-            The certificate chain is still verified. Only for development
-            with a certificate that does not name the server host.
+            Requires Secure Boot, two OTA partitions and an HTTPS update endpoint.
+            Trust roots are updated with the signed firmware image.
+
+    config WOL_FIRMWARE_URL
+        string "Fixed HTTPS URL of the signed firmware image"
+        depends on WOL_ENABLE_OTA
+        default ""
+        help
+            Publish the image for this product and target only. Give every release a
+            unique PROJECT_VER and advance the anti-rollback secure version as needed.
 
 endmenu

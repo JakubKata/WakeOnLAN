@@ -2,4 +2,5 @@
 # Version ranges live in pyproject.toml; keep both in sync.
 argon2-cffi==25.1.0
 asyncpg==0.31.0
+cryptography==50.0.2
 python-dotenv==1.2.3

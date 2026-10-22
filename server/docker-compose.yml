@@ -1,6 +1,6 @@
+# Set TLS_SERVER_NAME, ACME_EMAIL, POSTGRES_PASSWORD and TOKEN_PEPPER in .env.
+# DNS must point to this host and inbound TCP/80 must reach the ACME service.
 # docker compose up -d --build
-# Needs .env (from .env.example, with POSTGRES_PASSWORD and TOKEN_PEPPER set)
-# and the TLS certificate in certs/server.crt + certs/server.key.
 services:
   db:
     image: postgres:16-alpine
@@ -17,23 +17,47 @@ services:
       timeout: 3s
       retries: 10
 
+  acme:
+    image: certbot/certbot:v5.8.0
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/opt/acme/renew.sh"]
+    environment:
+      TLS_SERVER_NAME: ${TLS_SERVER_NAME:?set TLS_SERVER_NAME in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    ports:
+      - "80:80"
+    volumes:
+      - acme-state:/etc/letsencrypt
+      - tls-runtime:/run/wol-tls
+      - ./deploy/acme:/opt/acme:ro
+    healthcheck:
+      test: ["CMD", "python", "/opt/acme/healthcheck.py"]
+      interval: 1m
+      timeout: 5s
+      start_period: 2m
+      retries: 3
+
   server:
     build: .
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      acme:
+        condition: service_healthy
     env_file: .env
     environment:
       SERVER_HOST: 0.0.0.0
       DATABASE_URL: postgresql://wol:${POSTGRES_PASSWORD}@db:5432/wol
-      TLS_CERT_FILE: certs/server.crt
-      TLS_KEY_FILE: certs/server.key
+      TLS_CERT_FILE: /run/wol-tls/server.pem
+      TLS_KEY_FILE: /run/wol-tls/server.pem
     ports:
       - "${CLIENT_PORT:-8443}:${CLIENT_PORT:-8443}"
       - "${DEVICE_PORT:-8444}:${DEVICE_PORT:-8444}"
     volumes:
-      - ./certs:/app/certs:ro
+      - tls-runtime:/run/wol-tls:ro
 
 volumes:
   db-data:
+  acme-state:
+  tls-runtime:

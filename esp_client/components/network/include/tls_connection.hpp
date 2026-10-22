@@ -13,8 +13,7 @@ public:
   TlsConnection(const TlsConnection&) = delete;
   TlsConnection& operator=(const TlsConnection&) = delete;
 
-  // ca_pem must be NUL-terminated and outlive the connection.
-  bool connect(const std::string& host, int port, const char* ca_pem, bool skip_common_name);
+  bool connect(const std::string& host, int port);
   void close();
 
   bool send_line(const std::string& line);

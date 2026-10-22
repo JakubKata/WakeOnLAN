@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import os
 import secrets
 import ssl
@@ -13,6 +15,8 @@ import asyncpg
 import pytest
 import trustme
 from argon2 import PasswordHasher
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
 
 from wol_server.app import ConnectionLimits, Timeouts, WolServer
 from wol_server.config import Settings
@@ -26,6 +30,33 @@ from wol_server.session import Role
 
 PEPPER = b"test-pepper-that-is-long-enough-000"
 FAST_HASHER = PasswordHasher(time_cost=1, memory_cost=8, parallelism=1)
+
+
+def trusted_roots(ca: trustme.CA) -> list[x509.Certificate]:
+    return [x509.load_pem_x509_certificate(ca.cert_pem.bytes())]
+
+
+def issue_webpki_cert(ca: trustme.CA, *identities: str, **kwargs) -> trustme.LeafCert:
+    """Issue a test leaf with noncritical SAN and EKU, per WebPKI.
+
+    trustme's default critical SAN is useful to test TLS libraries, but does not
+    satisfy the WebPKI extension policy enforced for our deployment identity.
+    """
+    template = ca.issue_cert(*identities, **kwargs)
+    certificate = x509.load_pem_x509_certificate(template.cert_chain_pems[0].bytes())
+    builder = (x509.CertificateBuilder()
+        .subject_name(certificate.subject).issuer_name(certificate.issuer)
+        .public_key(certificate.public_key()).serial_number(certificate.serial_number)
+        .not_valid_before(certificate.not_valid_before_utc).not_valid_after(certificate.not_valid_after_utc))
+    for extension in certificate.extensions:
+        critical = False if isinstance(extension.value, (x509.SubjectAlternativeName, x509.ExtendedKeyUsage)) else extension.critical
+        builder = builder.add_extension(extension.value, critical=critical)
+    key = serialization.load_pem_private_key(ca.private_key_pem.bytes(), password=None)
+    signed = builder.sign(key, hashes.SHA256())
+    return trustme.LeafCert(
+        template.private_key_pem.bytes(), signed.public_bytes(serialization.Encoding.PEM),
+        [certificate.bytes() for certificate in template.cert_chain_pems[1:]],
+    )
 
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "")
@@ -86,6 +117,12 @@ async def temporary_services(
         yield make_services(db, limiter, mailer)
 
 
+def new_device_credentials() -> tuple[str, str]:
+    raw_secret = secrets.token_bytes(32)
+    encode = lambda value: base64.urlsafe_b64encode(value).rstrip(b"=").decode()
+    return encode(hashlib.sha256(raw_secret).digest()), encode(raw_secret)
+
+
 class Peer:
     """A test client speaking the line protocol over TLS."""
 
@@ -141,13 +178,14 @@ class Harness:
         return peer, reply.args[0]
 
     async def paired_device(self, client: Peer, name: str = "Desk ESP") -> tuple[Peer, str, str]:
-        claim = await client.call(Cmd.CREATE_CLAIM, name)
+        device_id, secret = new_device_credentials()
+        claim = await client.call(Cmd.CREATE_CLAIM, name, device_id)
         assert claim.command == Cmd.ACK, claim
         device = await self.device()
-        reply = await device.call(Cmd.DEVICE_CLAIM, claim.args[0])
-        assert reply.command == Cmd.ACK, reply
-        device_id, secret = reply.args
+        reply = await device.call(Cmd.DEVICE_CLAIM, claim.args[0], device_id, secret)
+        assert reply.command == Cmd.ACK and reply.args == (device_id,), reply
         return device, device_id, secret
+
 
 
 @asynccontextmanager

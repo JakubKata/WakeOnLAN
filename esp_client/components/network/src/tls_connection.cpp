@@ -1,8 +1,8 @@
 #include "tls_connection.hpp"
 
-#include <cstring>
 
 #include "esp_log.h"
+#include "esp_crt_bundle.h"
 #include "esp_timer.h"
 #include "lwip/sockets.h"
 #include "protocol.hpp"
@@ -23,14 +23,13 @@ TlsConnection::~TlsConnection() {
   close();
 }
 
-bool TlsConnection::connect(const std::string& host, int port, const char* ca_pem, bool skip_common_name) {
+bool TlsConnection::connect(const std::string& host, int port) {
   close();
 
   esp_tls_cfg_t cfg = {};
-  cfg.cacert_pem_buf = reinterpret_cast<const unsigned char*>(ca_pem);
-  cfg.cacert_pem_bytes = std::strlen(ca_pem) + 1;
+  cfg.crt_bundle_attach = esp_crt_bundle_attach;
   cfg.timeout_ms = CONNECT_TIMEOUT_MS;
-  cfg.skip_common_name = skip_common_name;
+  cfg.skip_common_name = false;
 
   tls_ = esp_tls_init();
   if (tls_ == nullptr) {

@@ -1,4 +1,4 @@
-"""Live connections. Only touched from the event loop thread, so no locking."""
+"""Live connections and ordering of device admission against owner revocation."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import contextlib
 import logging
 import secrets
 from collections import defaultdict
+from collections.abc import AsyncIterator
+from weakref import WeakValueDictionary
 
 from .protocol import Cmd, Message
 from .transport import Connection
@@ -21,7 +23,6 @@ class DeviceLink:
         self.device_id = device_id
         self.user_id = user_id
         self.conn = conn
-        self.rotation_lock = asyncio.Lock()
         self._pending: dict[str, asyncio.Future[None]] = {}
 
     async def request(self, command: str, *args: object, timeout: float) -> bool:
@@ -56,6 +57,21 @@ class Registry:
     def __init__(self) -> None:
         self._devices: dict[str, DeviceLink] = {}
         self._clients: defaultdict[int, set[Connection]] = defaultdict(set)
+        self._owner_locks: WeakValueDictionary[int, asyncio.Lock] = WeakValueDictionary()
+
+    @contextlib.asynccontextmanager
+    async def device_owner(self, user_id: int) -> AsyncIterator[None]:
+        """Order database checks and live-device changes for one owner.
+
+        Weak references retain locks only while an operation holds or awaits one.
+        All access happens on the event loop, before the first suspension point.
+        """
+        lock = self._owner_locks.get(user_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._owner_locks[user_id] = lock
+        async with lock:
+            yield
 
     def attach_device(self, link: DeviceLink) -> None:
         """Register a device, replacing (and closing) its previous connection."""
@@ -80,11 +96,12 @@ class Registry:
     def is_online(self, device_id: str) -> bool:
         return device_id in self._devices
 
-    async def unpair_device(self, device_id: str) -> None:
-        """Tell a removed device it is no longer paired and drop its connection."""
-        link = self._devices.pop(device_id, None)
-        if link is None:
+    async def unpair_device(self, device_id: str, expected_user_id: int) -> None:
+        """Drop a removed owner's link without touching a subsequent owner's link."""
+        link = self._devices.get(device_id)
+        if link is None or link.user_id != expected_user_id:
             return
+        del self._devices[device_id]
         with contextlib.suppress(OSError):
             await link.conn.send(Message(Cmd.UNPAIRED))
         link.close()

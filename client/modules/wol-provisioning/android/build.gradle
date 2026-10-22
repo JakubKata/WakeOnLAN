@@ -1,0 +1,17 @@
+apply plugin: 'com.android.library'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'com.wol.provisioning'
+version = '1.0.0'
+
+android {
+    namespace 'com.wol.provisioning'
+    defaultConfig { versionCode 1; versionName '1.0.0' }
+}
+
+dependencies {
+    implementation 'com.github.espressif:esp-idf-provisioning-android:lib-2.4.4'
+    implementation 'org.greenrobot:eventbus:3.3.1'
+    implementation 'com.google.protobuf:protobuf-javalite:3.18.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
+}

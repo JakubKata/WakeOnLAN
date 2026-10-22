@@ -1,6 +1,5 @@
 import TcpSocket from "react-native-tcp-socket";
 
-import serverCertificate from "../../assets/server.pem";
 import { WolError } from "./errors";
 import { Cmd, MAX_INBOUND_LINE_BYTES, decode, encode } from "./protocol";
 
@@ -42,7 +41,8 @@ export class WolConnection {
   connect(host: string, port: number): Promise<void> {
     this.close();
     return new Promise((resolve, reject) => {
-      const socket = TcpSocket.connectTLS({ host, port, ca: serverCertificate }, () => {
+      // Use the OS trust store; the native TLS policy verifies the hostname and TLS >= 1.2.
+      const socket = TcpSocket.connectTLS({ host, port }, () => {
         if (this.socket !== socket || this.connecting === null) return;
         clearTimeout(this.connecting.timer);
         this.connecting = null;

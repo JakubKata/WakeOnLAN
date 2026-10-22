@@ -21,17 +21,12 @@ export interface Target {
   name: string;
 }
 
-export interface Claim {
-  token: string;
-  expiresAt: number;
-}
-
 export interface AuthResult {
   token: string;
   name: string;
 }
 
-// The server waits up to 5 s for the ESP to confirm a wake-up or secret rotation.
+// The server waits up to 5 s for the ESP to confirm a wake-up.
 const DEVICE_REQUEST_TIMEOUT_MS = 20_000;
 
 type Guard<T> = (value: unknown) => value is T;
@@ -154,9 +149,9 @@ class WolApi {
 
   // --- devices ---
 
-  async createClaim(deviceName: string): Promise<Claim> {
-    const [token, ttl] = await this.call(Cmd.CREATE_CLAIM, [deviceName]);
-    return { token: one(token, isString), expiresAt: Date.now() + one(ttl, isNumber) * 1000 };
+  async createClaim(deviceName: string, deviceId: string): Promise<string> {
+    const [token] = await this.call(Cmd.CREATE_CLAIM, [deviceName, deviceId]);
+    return one(token, isString);
   }
 
   async listDevices(): Promise<Device[]> {
@@ -170,10 +165,6 @@ class WolApi {
 
   async removeDevice(deviceId: string): Promise<void> {
     await this.call(Cmd.REMOVE_DEVICE, [deviceId]);
-  }
-
-  async rotateDeviceSecret(deviceId: string): Promise<void> {
-    await this.call(Cmd.ROTATE_DEVICE_SECRET, [deviceId], DEVICE_REQUEST_TIMEOUT_MS);
   }
 
   // --- targets ---

@@ -62,3 +62,22 @@ def test_device_id_rules():
         with pytest.raises(CommandError) as exc:
             validate.device_id(bad)
         assert exc.value.code is Err.NOT_FOUND
+
+
+def test_enrollment_identity_requires_possession_of_its_secret():
+    from helpers import new_device_credentials
+
+    identity, secret = new_device_credentials()
+    _, other_secret = new_device_credentials()
+    assert validate.enrollment_id(identity) == identity
+    validate.enrollment_credentials(identity, secret)
+    with pytest.raises(CommandError) as exc:
+        validate.enrollment_credentials(identity, other_secret)
+    assert exc.value.code is Err.INVALID_TOKEN
+
+
+@pytest.mark.parametrize("value", ["A" * 42, "A" * 44, "A" * 42 + "B", "=" * 43, "☃" * 43])
+def test_enrollment_rejects_short_or_noncanonical_credentials(value):
+    with pytest.raises(CommandError) as exc:
+        validate.enrollment_id(value)
+    assert exc.value.code is Err.INVALID_TOKEN

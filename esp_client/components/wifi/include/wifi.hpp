@@ -6,7 +6,8 @@
 namespace wifi {
 
 // Requires nvs_flash_init(). Reconnects on its own after every disconnect.
-esp_err_t start(const char* ssid, const char* password);
+esp_err_t start();
+void set_provisioning(bool active);
 void wait_connected();
 
 }  // namespace wifi

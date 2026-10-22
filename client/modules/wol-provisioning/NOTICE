@@ -1,0 +1,14 @@
+The VerifiedSecurity2 Java adapter is derived from Espressif's Android
+provisioning SDK, lib-2.4.4, commit b83b78543fcd7ae24c9acbefdc17cad3ed4a3607:
+provisioning/src/main/java/com/espressif/provisioning/security/Security2.java
+Copyright 2022 Espressif Systems (Shanghai) PTE LTD, Apache License 2.0.
+
+VerifiedSrpClient is adapted from the same SDK SRP6ClientSession and
+ClientSRP6Routines (also copyright Connect2id Ltd. and others, 2011–2019).
+It preserves leading zero bytes in salts and SHA-512 outputs, rejects invalid
+public values, and compares the server proof in constant time.
+
+Local changes require Security 2 patch 1, reject invalid authentication and
+protocol messages, propagate cryptographic failures, use GCMParameterSpec,
+and reject AES-GCM counter exhaustion. No ESPDevice security negotiation or
+credential logging is used. See LICENSE-ESPRESSIF for the license.

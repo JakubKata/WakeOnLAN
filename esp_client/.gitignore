@@ -6,5 +6,8 @@ sdkconfig
 sdkconfig.old
 sdkconfig.release
 sdkconfig.release.old
-main/certs/*.crt
 secure_boot_signing_key.pem
+# Per-unit manufacturing secrets and labels.
+factory-output/
+*.bin
+__pycache__/

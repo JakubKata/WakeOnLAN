@@ -27,8 +27,6 @@ inline const std::string CMD_DEVICE_CLAIM = "DEVICE_CLAIM";
 inline const std::string CMD_DEVICE_AUTH = "DEVICE_AUTH";
 inline const std::string CMD_WAKE_UP = "WAKE_UP";
 inline const std::string CMD_WAKE_ACK = "WAKE_ACK";
-inline const std::string CMD_SET_SECRET = "SET_SECRET";
-inline const std::string CMD_SECRET_ACK = "SECRET_ACK";
 inline const std::string CMD_UNPAIRED = "UNPAIRED";
 
 inline const std::string ERR_INVALID_CREDENTIALS = "invalid_credentials";

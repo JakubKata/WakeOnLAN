@@ -67,6 +67,15 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE users ADD COLUMN session_epoch bigint NOT NULL DEFAULT 0;
     """,
+    """
+    -- Unbound tokens from the previous protocol cannot enroll devices anymore.
+    DELETE FROM claims;
+    ALTER TABLE claims ADD COLUMN device_id text NOT NULL;
+    ALTER TABLE devices ADD COLUMN enrollment_hash text;
+    -- Preserve recovery for devices upgraded during an unconfirmed legacy rotation.
+    -- There is no API that can issue another alternate secret.
+    ALTER TABLE devices RENAME COLUMN next_secret_hash TO recovery_secret_hash;
+    """,
 ]
 
 

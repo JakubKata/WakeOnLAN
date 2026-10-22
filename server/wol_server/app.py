@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import functools
 import logging
-import ssl
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -16,6 +15,7 @@ from .protocol import MAX_LINE_BYTES, Cmd, Err, Message, ProtocolError, nack
 from .ratelimit import ConnectionLimiter
 from .session import Role, Session
 from .transport import CLOSE_TIMEOUT, Connection, FrameTooLong
+from .tls import ReloadableTLS
 
 log = logging.getLogger(__name__)
 
@@ -43,14 +43,6 @@ class ConnectionLimits:
     pre_auth_per_port: int = 256
 
 
-def build_ssl_context(settings: Settings) -> ssl.SSLContext:
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
-    context.options |= ssl.OP_NO_COMPRESSION
-    context.load_cert_chain(certfile=settings.cert_file, keyfile=settings.key_file)
-    return context
-
-
 class WolServer:
     def __init__(
         self,
@@ -69,13 +61,14 @@ class WolServer:
         self._pre_auth_limiters = {
             role: ConnectionLimiter(limits.pre_auth_per_ip, limits.pre_auth_per_port) for role in Role
         }
-        self._ssl_context: ssl.SSLContext | None = None
+        self._tls: ReloadableTLS | None = None
         self._connections: set[Connection] = set()
         self._servers: dict[Role, asyncio.Server] = {}
         self._purge_task: asyncio.Task[None] | None = None
+        self._tls_reload_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
-        self._ssl_context = build_ssl_context(self._settings)
+        self._tls = ReloadableTLS(self._settings)
         ports = {Role.CLIENT: self._settings.client_port, Role.DEVICE: self._settings.device_port}
         for role, port in ports.items():
             # TLS starts in _on_connect, after the connection limits are checked.
@@ -87,6 +80,7 @@ class WolServer:
             )
             log.info("%s port listening on %s:%d", role.value, self._settings.host, self.port(role))
         self._purge_task = asyncio.create_task(self._purge_loop())
+        self._tls_reload_task = asyncio.create_task(self._tls_reload_loop())
 
     def port(self, role: Role) -> int:
         return self._servers[role].sockets[0].getsockname()[1]
@@ -95,8 +89,10 @@ class WolServer:
         await asyncio.gather(*(server.serve_forever() for server in self._servers.values()))
 
     async def close(self) -> None:
-        if self._purge_task is not None:
-            self._purge_task.cancel()
+        tasks = [task for task in (self._purge_task, self._tls_reload_task) if task is not None]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         for server in self._servers.values():
             server.close()
         connections = list(self._connections)
@@ -132,7 +128,8 @@ class WolServer:
 
         try:
             try:
-                await writer.start_tls(self._ssl_context, ssl_handshake_timeout=self._timeouts.handshake)
+                assert self._tls is not None
+                await writer.start_tls(self._tls.context, ssl_handshake_timeout=self._timeouts.handshake)
             except OSError as exc:
                 log.debug("%s TLS handshake with %s failed: %r", role.value, peer, exc)
                 await _abort(writer)
@@ -233,6 +230,12 @@ class WolServer:
                 )
             except Exception:
                 log.exception("purging expired records failed")
+
+    async def _tls_reload_loop(self) -> None:
+        assert self._tls is not None
+        while True:
+            await asyncio.sleep(self._settings.tls_reload_interval)
+            await asyncio.to_thread(self._tls.reload_if_changed)
 
 
 async def _abort(writer: asyncio.StreamWriter) -> None:

@@ -4,10 +4,9 @@ import asyncio
 
 import pytest
 
-from helpers import requires_database, running_server
+from helpers import new_device_credentials, requires_database, running_server
 from wol_server import dispatcher
 from wol_server.app import Timeouts
-from wol_server.handlers import devices as devices_handlers
 from wol_server.handlers import targets as targets_handlers
 from wol_server.protocol import MAX_LINE_BYTES, Cmd, Err, Message, ack, nack
 from wol_server.session import Role
@@ -93,10 +92,57 @@ def test_claim_token_is_single_use(tmp_path):
     async def scenario():
         async with running_server(tmp_path) as h:
             client, _ = await h.registered_client()
-            claim = await client.call(Cmd.CREATE_CLAIM, "ESP")
+            device_id, secret = new_device_credentials()
+            other_id, other_secret = new_device_credentials()
+            claim = await client.call(Cmd.CREATE_CLAIM, "ESP", device_id)
             first, second = await h.device(), await h.device()
-            assert (await first.call(Cmd.DEVICE_CLAIM, claim.args[0])).command == Cmd.ACK
-            assert await second.call(Cmd.DEVICE_CLAIM, claim.args[0]) == nack(Err.INVALID_TOKEN)
+            assert (await first.call(Cmd.DEVICE_CLAIM, claim.args[0], device_id, secret)).command == Cmd.ACK
+            assert await second.call(Cmd.DEVICE_CLAIM, claim.args[0], other_id, other_secret) == nack(Err.INVALID_TOKEN)
+
+    run(scenario())
+
+
+def test_claim_requires_device_secret_and_recovers_after_lost_reply(tmp_path):
+    async def scenario():
+        async with running_server(tmp_path) as h:
+            client, _ = await h.registered_client()
+            device_id, secret = new_device_credentials()
+            _, forged_secret = new_device_credentials()
+            claim = await client.call(Cmd.CREATE_CLAIM, "Office", device_id)
+            attacker = await h.device()
+            assert await attacker.call(
+                Cmd.DEVICE_CLAIM, claim.args[0], device_id, forged_secret
+            ) == nack(Err.INVALID_TOKEN)
+            assert (await client.call(Cmd.LIST_DEVICES)).args == ([],)
+
+            # The device persists its credentials before sending enrollment. Discard
+            # the reply: authentication on the next connection recovers the result.
+            first = await h.device()
+            await first.send(Cmd.DEVICE_CLAIM, claim.args[0], device_id, secret)
+            for _ in range(100):
+                if h.services.registry.is_online(device_id):
+                    break
+                await asyncio.sleep(0.01)
+            assert h.services.registry.is_online(device_id)
+            await first.close()
+            again = await h.device()
+            assert await again.call(Cmd.DEVICE_AUTH, device_id, secret) == ack()
+            retry = await h.device()
+            assert await retry.call(Cmd.DEVICE_CLAIM, claim.args[0], device_id, secret) == ack(device_id)
+            assert len((await client.call(Cmd.LIST_DEVICES)).args[0]) == 1
+
+    run(scenario())
+
+
+def test_old_enrollment_and_manual_secret_commands_are_not_supported(tmp_path):
+    async def scenario():
+        async with running_server(tmp_path) as h:
+            client, _ = await h.registered_client()
+            device = await h.device()
+            assert await client.call(Cmd.CREATE_CLAIM, "Office") == nack(Err.BAD_ARGS)
+            assert await device.call(Cmd.DEVICE_CLAIM, "a" * 22) == nack(Err.BAD_ARGS)
+            assert await client.call("ROTATE_DEVICE_SECRET", "a" * 43) == nack(Err.UNKNOWN_COMMAND)
+            assert await device.call("SECRET_ACK", "a" * 16) == nack(Err.UNKNOWN_COMMAND)
 
     run(scenario())
 
@@ -164,72 +210,6 @@ def test_remove_device_notifies_it(tmp_path):
 
             again = await h.device()
             assert await again.call(Cmd.DEVICE_AUTH, device_id, secret) == nack(Err.INVALID_CREDENTIALS)
-
-    run(scenario())
-
-
-def test_rotate_device_secret(tmp_path):
-    async def scenario():
-        async with running_server(tmp_path) as h:
-            client, _ = await h.registered_client()
-            device, device_id, old_secret = await h.paired_device(client)
-
-            async def confirm():
-                request = await device.recv()
-                assert request.command == Cmd.SET_SECRET
-                request_id, secret = request.args
-                await device.send(Cmd.SECRET_ACK, request_id)
-                return secret
-
-            responder = asyncio.create_task(confirm())
-            assert await client.call(Cmd.ROTATE_DEVICE_SECRET, device_id) == ack(device_id)
-            new_secret = await responder
-
-            old = await h.device()
-            assert await old.call(Cmd.DEVICE_AUTH, device_id, old_secret) == nack(Err.INVALID_CREDENTIALS)
-            new = await h.device()
-            assert await new.call(Cmd.DEVICE_AUTH, device_id, new_secret) == ack()
-
-    run(scenario())
-
-
-@pytest.mark.parametrize("device_kept_new_secret", [False, True])
-def test_unconfirmed_rotation_disconnects_device(tmp_path, monkeypatch, device_kept_new_secret):
-    monkeypatch.setattr(devices_handlers, "DEVICE_REQUEST_TIMEOUT", 0.3)
-
-    async def scenario():
-        async with running_server(tmp_path) as h:
-            client, _ = await h.registered_client()
-            device, device_id, old_secret = await h.paired_device(client)
-
-            async def ignore():
-                request = await device.recv()
-                assert request.command == Cmd.SET_SECRET
-                return request.args[1]
-
-            responder = asyncio.create_task(ignore())
-            assert await client.call(Cmd.ROTATE_DEVICE_SECRET, device_id) == nack(Err.DEVICE_UNREACHABLE)
-            staged = await responder
-            assert await device.recv() is None
-
-            kept, lost = (staged, old_secret) if device_kept_new_secret else (old_secret, staged)
-            again = await h.device()
-            assert await again.call(Cmd.DEVICE_AUTH, device_id, kept) == ack()
-
-            async def confirm():
-                request = await again.recv()
-                await again.send(Cmd.SECRET_ACK, request.args[0])
-                return request.args[1]
-
-            responder = asyncio.create_task(confirm())
-            assert await client.call(Cmd.ROTATE_DEVICE_SECRET, device_id) == ack(device_id)
-            rotated = await responder
-
-            for stale in (kept, lost):
-                peer = await h.device()
-                assert await peer.call(Cmd.DEVICE_AUTH, device_id, stale) == nack(Err.INVALID_CREDENTIALS)
-            fresh = await h.device()
-            assert await fresh.call(Cmd.DEVICE_AUTH, device_id, rotated) == ack()
 
     run(scenario())
 
@@ -377,48 +357,17 @@ def test_password_change_and_logout_all_revoke_claims(tmp_path):
     async def scenario():
         async with running_server(tmp_path) as h:
             client, _ = await h.registered_client(password="old password")
-            first = await client.call(Cmd.CREATE_CLAIM, "ESP")
+            device_id, secret = new_device_credentials()
+            first = await client.call(Cmd.CREATE_CLAIM, "ESP", device_id)
             changed = await client.call(Cmd.CHANGE_PASSWORD, "old password", "new password")
             assert changed.command == Cmd.ACK
             device = await h.device()
-            assert await device.call(Cmd.DEVICE_CLAIM, first.args[0]) == nack(Err.INVALID_TOKEN)
+            assert await device.call(Cmd.DEVICE_CLAIM, first.args[0], device_id, secret) == nack(Err.INVALID_TOKEN)
 
-            second = await client.call(Cmd.CREATE_CLAIM, "ESP")
+            second = await client.call(Cmd.CREATE_CLAIM, "ESP", device_id)
             assert await client.call(Cmd.LOGOUT_ALL) == ack()
             device = await h.device()
-            assert await device.call(Cmd.DEVICE_CLAIM, second.args[0]) == nack(Err.INVALID_TOKEN)
-
-    run(scenario())
-
-
-def test_concurrent_rotations_leave_device_and_server_in_sync(tmp_path):
-    async def scenario():
-        async with running_server(tmp_path) as h:
-            phone, token = await h.registered_client()
-            laptop = await h.client()
-            assert await laptop.call(Cmd.RESUME, token) == ack("alice")
-            device, device_id, _ = await h.paired_device(phone)
-
-            stored = []
-
-            async def device_stores_secrets():
-                for _ in range(2):
-                    request = await device.recv()
-                    assert request.command == Cmd.SET_SECRET
-                    request_id, secret = request.args
-                    stored.append(secret)
-                    await device.send(Cmd.SECRET_ACK, request_id)
-
-            responder = asyncio.create_task(device_stores_secrets())
-            replies = await asyncio.gather(
-                phone.call(Cmd.ROTATE_DEVICE_SECRET, device_id),
-                laptop.call(Cmd.ROTATE_DEVICE_SECRET, device_id),
-            )
-            await responder
-            assert replies == [ack(device_id), ack(device_id)]
-
-            again = await h.device()
-            assert await again.call(Cmd.DEVICE_AUTH, device_id, stored[-1]) == ack()
+            assert await device.call(Cmd.DEVICE_CLAIM, second.args[0], device_id, secret) == nack(Err.INVALID_TOKEN)
 
     run(scenario())
 
@@ -433,12 +382,10 @@ def test_device_error_codes_follow_the_spec(tmp_path):
             malformed = await h.device()
             assert await malformed.call(Cmd.DEVICE_AUTH, "short", "x") == nack(Err.INVALID_CREDENTIALS)
 
-            assert await mallory.call(Cmd.ROTATE_DEVICE_SECRET, device_id) == nack(Err.NOT_FOUND)
-            assert await mallory.call(Cmd.ROTATE_DEVICE_SECRET, "no-such-device-id") == nack(Err.NOT_FOUND)
-            await device.close()
-            await asyncio.sleep(0.1)
-            assert await alice.call(Cmd.ROTATE_DEVICE_SECRET, device_id) == nack(Err.DEVICE_OFFLINE)
-            assert await mallory.call(Cmd.ROTATE_DEVICE_SECRET, device_id) == nack(Err.NOT_FOUND)
+            assert await mallory.call(Cmd.REMOVE_DEVICE, device_id) == nack(Err.NOT_FOUND)
+            assert await mallory.call(Cmd.RENAME_DEVICE, device_id, "stolen") == nack(Err.NOT_FOUND)
+            assert await alice.call(Cmd.RENAME_DEVICE, device_id, "Office") == ack(device_id, "Office")
+
 
     run(scenario())
 

@@ -21,6 +21,7 @@ from . import schema
 MAX_SESSIONS_PER_USER = 20
 MAX_DEVICES_PER_USER = 10
 MAX_TARGETS_PER_USER = 64
+ENROLLMENT_LOCK_NAMESPACE = 0x574F4C
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,18 +312,22 @@ class ClaimsRepo:
     def __init__(self, db: Database):
         self._db = db
 
-    async def create(self, user_id: int, token_hash: str, device_name: str, ttl: int) -> None:
-        """Store a claim, replacing any earlier unused claim of the same user."""
+    async def create(
+        self, user_id: int, token_hash: str, device_name: str, device_id: str, ttl: int
+    ) -> None:
+        """Store a device-bound claim, replacing the same user's earlier unused claim."""
         async with self._db.transaction() as conn:
             await _lock_user(conn, user_id)
+            if await conn.fetchval("SELECT 1 FROM devices WHERE id = $1", device_id):
+                raise CommandError(Err.DUPLICATE)
             count = await conn.fetchval("SELECT count(*) FROM devices WHERE user_id = $1", user_id)
             if count >= MAX_DEVICES_PER_USER:
                 raise CommandError(Err.LIMIT_REACHED)
             await conn.execute("DELETE FROM claims WHERE user_id = $1", user_id)
             await conn.execute(
-                "INSERT INTO claims (token_hash, user_id, device_name, expires_at)"
-                " VALUES ($1, $2, $3, now() + $4::interval)",
-                token_hash, user_id, device_name, _ttl(ttl),
+                "INSERT INTO claims (token_hash, user_id, device_name, device_id, expires_at)"
+                " VALUES ($1, $2, $3, $4, now() + $5::interval)",
+                token_hash, user_id, device_name, device_id, _ttl(ttl),
             )
 
     async def purge_expired(self) -> int:
@@ -334,43 +339,72 @@ class DevicesRepo:
         self._db = db
 
     async def redeem_claim(self, claim_hash: str, device_id: str, secret_hash: str) -> Device | None:
-        """Consume a claim token and create the device it was issued for."""
+        """Consume a bound claim exactly once; retrying its committed result is safe."""
         async with self._db.transaction() as conn:
+            # Serialize the absent-row case as well as existing devices. Hash
+            # collisions only serialize unrelated enrollments; they grant no rights.
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock($1, hashtext($2))", ENROLLMENT_LOCK_NAMESPACE, device_id,
+            )
+            existing = await conn.fetchrow("SELECT * FROM devices WHERE id = $1 FOR UPDATE", device_id)
+            if existing is not None:
+                # Recover a lost enrollment reply without issuing credentials again or
+                # changing ownership. Neither the token nor the public id alone suffices.
+                if existing["enrollment_hash"] is None or not (
+                    hmac.compare_digest(existing["enrollment_hash"], claim_hash)
+                    and hmac.compare_digest(existing["secret_hash"], secret_hash)
+                ):
+                    return None
+                await conn.execute("UPDATE devices SET last_seen_at = now() WHERE id = $1", device_id)
+                return _device(existing)
+
+            user_id = await conn.fetchval(
+                "SELECT user_id FROM claims WHERE token_hash = $1 AND device_id = $2"
+                " AND expires_at > clock_timestamp()", claim_hash, device_id,
+            )
+            if user_id is None:
+                return None
+            # Use the same lock order as claim issuance/revocation and recheck after
+            # waiting. Parallel enrollments cannot exceed the account's device limit.
+            if await conn.fetchval("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", user_id) is None:
+                return None
             claim = await conn.fetchrow(
-                "DELETE FROM claims WHERE token_hash = $1 AND expires_at > now()"
-                " RETURNING user_id, device_name",
-                claim_hash,
+                "DELETE FROM claims WHERE token_hash = $1 AND device_id = $2 AND expires_at > clock_timestamp()"
+                " RETURNING user_id, device_name", claim_hash, device_id,
             )
             if claim is None:
                 return None
+            count = await conn.fetchval("SELECT count(*) FROM devices WHERE user_id = $1", user_id)
+            if count >= MAX_DEVICES_PER_USER:
+                raise CommandError(Err.LIMIT_REACHED)
             row = await conn.fetchrow(
-                "INSERT INTO devices (id, user_id, name, secret_hash, last_seen_at)"
-                " VALUES ($1, $2, $3, $4, now()) RETURNING *",
-                device_id, claim["user_id"], claim["device_name"], secret_hash,
+                "INSERT INTO devices (id, user_id, name, secret_hash, enrollment_hash, last_seen_at)"
+                " VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (id) DO NOTHING RETURNING *",
+                device_id, user_id, claim["device_name"], secret_hash, claim_hash,
             )
-            return _device(row)
+            return _device(row) if row is not None else None
 
     async def authenticate(self, device_id: str, secret_hash: str) -> Device | None:
-        """Verify a device secret, settling a pending rotation by whichever secret was used."""
+        """Authenticate, resolving a pre-upgrade interrupted rotation once if necessary."""
         async with self._db.transaction() as conn:
             row = await conn.fetchrow("SELECT * FROM devices WHERE id = $1 FOR UPDATE", device_id)
             if row is None:
                 return None
             current_ok = hmac.compare_digest(row["secret_hash"], secret_hash)
-            next_ok = row["next_secret_hash"] is not None and hmac.compare_digest(
-                row["next_secret_hash"], secret_hash
+            recovery_ok = row["recovery_secret_hash"] is not None and hmac.compare_digest(
+                row["recovery_secret_hash"], secret_hash
             )
-            if not (current_ok or next_ok):
+            if not (current_ok or recovery_ok):
                 return None
-            if next_ok:
+            if recovery_ok:
                 await conn.execute(
-                    "UPDATE devices SET secret_hash = next_secret_hash, next_secret_hash = NULL"
+                    "UPDATE devices SET secret_hash = recovery_secret_hash, recovery_secret_hash = NULL"
                     " WHERE id = $1",
                     device_id,
                 )
-            elif row["next_secret_hash"] is not None:
-                # The device still has the current secret, so it never stored the staged one.
-                await conn.execute("UPDATE devices SET next_secret_hash = NULL WHERE id = $1", device_id)
+            elif row["recovery_secret_hash"] is not None:
+                # The device retained its original secret before the protocol upgrade.
+                await conn.execute("UPDATE devices SET recovery_secret_hash = NULL WHERE id = $1", device_id)
             row = await conn.fetchrow(
                 "UPDATE devices SET last_seen_at = now() WHERE id = $1 RETURNING *", device_id
             )
@@ -382,6 +416,10 @@ class DevicesRepo:
         )
         return [_device(row) for row in rows]
 
+    async def owns(self, user_id: int, device_id: str) -> bool:
+        """Recheck ownership before admitting an authenticated live connection."""
+        return await _owns_device(self._db.pool, user_id, device_id)
+
     async def rename(self, user_id: int, device_id: str, name: str) -> None:
         _require_row(await self._db.pool.execute(
             "UPDATE devices SET name = $1 WHERE id = $2 AND user_id = $3", name, device_id, user_id
@@ -391,25 +429,6 @@ class DevicesRepo:
         _require_row(await self._db.pool.execute(
             "DELETE FROM devices WHERE id = $1 AND user_id = $2", device_id, user_id
         ))
-
-    async def stage_secret(self, user_id: int, device_id: str, secret_hash: str) -> None:
-        _require_row(await self._db.pool.execute(
-            "UPDATE devices SET next_secret_hash = $1 WHERE id = $2 AND user_id = $3",
-            secret_hash, device_id, user_id,
-        ))
-
-    async def promote_secret(self, device_id: str, secret_hash: str) -> bool:
-        """Make a staged secret current; True if ``secret_hash`` is the current secret afterwards."""
-        # authenticate() may already have promoted it when the device reconnected with it.
-        return _affected(await self._db.pool.execute(
-            "UPDATE devices SET secret_hash = $2, next_secret_hash = NULL"
-            " WHERE id = $1 AND (next_secret_hash = $2 OR secret_hash = $2)",
-            device_id, secret_hash,
-        )) > 0
-
-    async def owns(self, user_id: int, device_id: str) -> bool:
-        async with self._db.pool.acquire() as conn:
-            return await _owns_device(conn, user_id, device_id)
 
     async def touch(self, device_id: str) -> None:
         await self._db.pool.execute("UPDATE devices SET last_seen_at = now() WHERE id = $1", device_id)

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from helpers import FakeMailer, requires_database, running_server
+from helpers import FakeMailer, new_device_credentials, requires_database, running_server
 from wol_server import validation as validate
 from wol_server.config import ConfigError, smtp_settings
 from wol_server.errors import CommandError
@@ -151,7 +151,8 @@ def test_reset_revokes_pending_claims(tmp_path: Path):
         mailer = FakeMailer()
         async with running_server(tmp_path, mailer=mailer) as h:
             owner, _ = await h.registered_client()
-            claim = await owner.call(Cmd.CREATE_CLAIM, "Planted ESP")
+            device_id, secret = new_device_credentials()
+            claim = await owner.call(Cmd.CREATE_CLAIM, "Planted ESP", device_id)
             assert claim.command == Cmd.ACK
 
             peer = await h.client()
@@ -160,7 +161,7 @@ def test_reset_revokes_pending_claims(tmp_path: Path):
             assert reply.command == Cmd.ACK
 
             device = await h.device()
-            assert await device.call(Cmd.DEVICE_CLAIM, claim.args[0]) == nack(Err.INVALID_TOKEN)
+            assert await device.call(Cmd.DEVICE_CLAIM, claim.args[0], device_id, secret) == nack(Err.INVALID_TOKEN)
 
     run(scenario())
 

@@ -1,9 +1,10 @@
 node_modules/
 .expo/
 dist/
-android/
-ios/
+/android/
+/ios/
+/modules/*/android/build/
+/modules/*/android/.gradle/
 expo-env.d.ts
 *.apk
 *.aab
-assets/server.pem

@@ -1,0 +1,2 @@
+# The NVS partition generator is installed by ESP-IDF's Python environment.
+qrcode==8.2

@@ -106,7 +106,7 @@
         <li><a href="#flow-register">Rejestracja i logowanie</a></li>
         <li><a href="#flow-pair">Parowanie ESP32</a></li>
         <li><a href="#flow-wake">Budzenie komputera</a></li>
-        <li><a href="#flow-rotate">Rotacja sekretu</a></li>
+        <li><a href="#flow-recovery">Odzyskiwanie Wi-Fi</a></li>
         <li><a href="#flow-reset">Reset hasła</a></li>
         <li><a href="#flow-revoke">Wylogowanie i unieważnienie</a></li>
         <li><a href="#flow-remove">Usunięcie urządzenia / konta</a></li>
@@ -158,7 +158,7 @@
     ESP-IDF, C++. Stałe połączenie z serwerem, odbiór <code>WAKE_UP</code>, wysyłka magic packetu UDP w sieci lokalnej.</div>
 </div>
 
-<p>Najważniejsza idea: <strong>ESP32 samo łączy się z serwerem</strong> (połączenie wychodzące), więc w domowym routerze nie trzeba otwierać portów. Publicznie dostępny jest tylko serwer. Aplikacja i ESP32 nigdy nie rozmawiają ze sobą bezpośrednio.</p>
+<p>Najważniejsza idea: <strong>ESP32 samo łączy się z serwerem</strong> (połączenie wychodzące), więc w domowym routerze nie trzeba otwierać portów. Publicznie dostępny jest tylko serwer. Podczas konfiguracji aplikacja komunikuje się bezpośrednio z ESP32 przez uwierzytelnione i szyfrowane BLE; polecenia budzenia nadal przechodzą przez serwer.</p>
 
 <!-- ============================================================ -->
 <h2 id="how-to-read">2. Jak czytać tę dokumentację i kod</h2>
@@ -288,10 +288,10 @@
 
 <h3 id="arch-esp">Warstwy firmware</h3>
 <pre>
- main/main.cpp                 app_main: NVS, Wi-Fi, zadanie wol_client, konsola UART (claim)
+ main/main.cpp                 app_main: NVS, Wi-Fi, zadanie wol_client, konfiguracja BLE
       │
  components/network/           WolClient (sesja, obsługa komend) · TlsConnection · Packet (cJSON)
- components/storage/           credentials:: (NVS: device_id, secret, claim, used_claim)
+ components/storage/           credentials:: (NVS: tożsamość, stan przypisania, oczekujący claim)
  components/wifi/              wifi::start / wait_connected (automatyczne ponowne łączenie)
  components/wol/               wol::parse_mac / send_magic_packet (UDP broadcast)
 </pre>
@@ -300,12 +300,13 @@
 <h2 id="structure">4. Struktura repozytorium</h2>
 <pre>
 wake/
-├── README.md                         instrukcja uruchomienia (PL)
+├── README.md, README.pl.md           instrukcje uruchomienia (EN i PL)
 ├── docs/                             ta dokumentacja (PL i EN)
 ├── server/
 │   ├── PROTOCOL.md                   pełna specyfikacja protokołu, limity, kody błędów
 │   ├── pyproject.toml, requirements*.txt
 │   ├── Dockerfile, docker-compose.yml, .env.example
+│   ├── deploy/acme/                 automatyczne wydawanie/odnawianie certyfikatu
 │   ├── wol_server/
 │   │   ├── __main__.py               punkt wejścia: python -m wol_server
 │   │   ├── app.py                    WolServer: porty, TLS, pętla połączenia
@@ -319,6 +320,7 @@ wake/
 │   │   ├── registry.py               Registry, DeviceLink (połączenia na żywo)
 │   │   ├── security.py               Security: Argon2, HMAC tokenów, kody resetu
 │   │   ├── session.py                Role, Session
+│   │   ├── tls.py                    ReloadableTLS, walidacja, monitoring ważności
 │   │   ├── transport.py              Connection, FrameTooLong
 │   │   ├── validation.py             reguły pól wejściowych
 │   │   ├── db/
@@ -329,13 +331,14 @@ wake/
 │   │       ├── auth.py               PING, REGISTER, LOGIN, RESUME
 │   │       ├── account.py            LOGOUT(_ALL), CHANGE_PASSWORD/NAME, DELETE_ACCOUNT
 │   │       ├── password_reset.py     REQUEST_PASSWORD_RESET, RESET_PASSWORD
-│   │       ├── devices.py            CREATE_CLAIM, LIST/RENAME/REMOVE_DEVICE, ROTATE_DEVICE_SECRET
+│   │       ├── devices.py            CREATE_CLAIM, LIST/RENAME/REMOVE_DEVICE
 │   │       ├── targets.py            ADD/LIST/RENAME/ASSIGN/REMOVE_TARGET, WAKE_UP
-│   │       └── esp.py                DEVICE_CLAIM, DEVICE_AUTH, PING, PONG, WAKE_ACK, SECRET_ACK
+│   │       └── esp.py                DEVICE_CLAIM, DEVICE_AUTH, PING, PONG, WAKE_ACK
 │   └── tests/                        pytest: jednostkowe i integracyjne (TLS + PostgreSQL)
 ├── client/
 │   ├── app.json, eas.json, metro.config.js, package.json, tsconfig.json
-│   ├── assets/server.pem             przypięty certyfikat serwera (poza gitem)
+│   ├── modules/wol-provisioning/     natywny most Android BLE Security 2
+│   ├── patches/                      obowiązkowa poprawka TLS Androida
 │   ├── app/                          ekrany (Expo Router, routing plikowy)
 │   │   ├── _layout.tsx               korzeń: SessionProvider + chronione trasy
 │   │   ├── (auth)/                   _layout, login, register, reset
@@ -353,10 +356,14 @@ wake/
     ├── CMakeLists.txt, partitions.csv
     ├── sdkconfig.defaults            szyfrowanie flash + NVS (Development)
     ├── sdkconfig.defaults.release    Release + Secure Boot v2
-    ├── main/                         main.cpp, Kconfig.projbuild, certs/server.crt
+    ├── main/                         main.cpp, Kconfig.projbuild
+    ├── tools/provision_factory.py    szyfrowany NVS i prywatny QR egzemplarza
     └── components/
         ├── network/                  wol_client, tls_connection, protocol (+ cJSON)
         ├── storage/                  credentials (NVS)
+        ├── onboarding/               BLE Security 2
+        ├── device_clock/             uruchamianie/zapis zegara
+        ├── updates/                  podpisane HTTPS OTA i rollback
         ├── wifi/                     wifi
         └── wol/                      magic_packet
 </pre>
@@ -378,7 +385,7 @@ wake/
   <li><code>build_dispatcher()</code> – zbiera routery ze wszystkich modułów <code>handlers/*</code> w jeden <code>Dispatcher</code> (i sprawdza, czy nie ma zdublowanych komend).</li>
   <li><code>WolServer.start()</code>:
     <ul>
-      <li><code>build_ssl_context()</code> – TLS ≥ 1.2, bez kompresji, ładuje certyfikat i klucz;</li>
+      <li><code>ReloadableTLS</code> – TLS ≥ 1.2, weryfikuje i wczytuje zarządzaną tożsamość; uruchamia obserwowanie certyfikatu;</li>
       <li>dla każdej roli (<code>CLIENT</code>, <code>DEVICE</code>) <code>asyncio.start_server(partial(_on_connect, role), host, port, limit=4096)</code> – <strong>bez</strong> <code>ssl=</code>, TLS jest włączany ręcznie później;</li>
       <li>uruchamia zadanie <code>_purge_loop()</code>.</li>
     </ul>
@@ -446,7 +453,7 @@ wake/
   <li><code>reload</code> zwiększa licznik <code>generation</code>, ustawia <code>loading</code> i woła <code>loadPanel()</code> = <code>Promise.all([api.listTargets(), api.listDevices()])</code>.</li>
   <li><code>api.listTargets()</code> → prywatne <code>call(LIST_TARGETS)</code> → <code>ensureSession()</code>.</li>
   <li><code>ensureSession</code>: jeśli nie ma aktywnej obietnicy sesji, tworzy ją przez <code>openSession()</code> i zapamiętuje. Drugie równoległe wywołanie (<code>listDevices</code>) dostaje tę samą obietnicę – tylko jeden <code>RESUME</code>.</li>
-  <li><code>openSession</code> → <code>open()</code> → <code>WolConnection.connect(host, port)</code>: <code>TcpSocket.connectTLS</code> z <code>ca: serverCertificate</code> (przypięty certyfikat), timeout 10 s, po połączeniu start interwału <code>PING</code> co 60 s.</li>
+  <li><code>openSession</code> → <code>open()</code> → <code>WolConnection.connect(host, port)</code>: <code>TcpSocket.connectTLS</code> z systemowym magazynem CA oraz kontrolą łańcucha, ważności i nazwy hosta, timeout 10 s, po połączeniu start interwału <code>PING</code> co 60 s.</li>
   <li><code>conn.request(RESUME, [token])</code> → zapis linii do gniazda, dodanie <code>{resolve, reject, timer}</code> na koniec kolejki <code>pending</code>.</li>
   <li>Przychodzą dane → <code>onData</code> składa bufor, tnie po <code>\n</code> → <code>onLine</code> → <code>decode</code> → zdejmuje <em>pierwszy</em> element z kolejki → <code>ACK</code>/<code>PONG</code> = resolve, <code>NACK</code> = reject z <code>WolError(kod)</code>.</li>
   <li>Po udanym <code>RESUME</code> właściwe <code>request(LIST_TARGETS)</code>; odpowiedź przechodzi przez strażnika typów <code>list(value, isTarget)</code> – zły kształt danych daje <code>protocol_error</code>.</li>
@@ -461,35 +468,17 @@ wake/
   <li>Jeśli połączenie zerwie się samo (błąd, timeout żądania), <code>WolConnection.fail</code> woła <code>onClosed</code> → <code>WolApi</code> zeruje <code>session</code>; następne wywołanie <code>call()</code> połączy się ponownie automatycznie.</li>
 </ul>
 
-<h3 id="lc-esp">5.7 Start i główna pętla ESP32 <span class="tag esp">firmware</span></h3>
-<ol class="flow">
-  <li><code>app_main()</code> (wywoływane przez ESP-IDF po bootloaderze).</li>
-  <li><code>init_nvs()</code> – <code>nvs_flash_init()</code>; przy szyfrowaniu NVS odczytuje (albo przy pierwszym starcie generuje) klucze z partycji <code>nvs_keys</code>. Uszkodzona partycja jest kasowana i inicjowana ponownie.</li>
-  <li><code>wifi::start(SSID, hasło)</code> – tryb stacji; handler zdarzeń sam łączy się ponownie po każdym rozłączeniu i ustawia/zeruje bit <code>CONNECTED_BIT</code>.</li>
-  <li><code>xTaskCreate(client_task, "wol_client", 10 KB, prio 5)</code> – osobne zadanie FreeRTOS z <code>WolClient</code>.</li>
-  <li><code>start_console()</code> – REPL na UART z komendą <code>claim &lt;token&gt;</code>. <code>app_main</code> kończy się, zadania działają dalej.</li>
-  <li><code>WolClient::run()</code> – nieskończona pętla:
-    <ul>
-      <li><code>load_identity()</code> – dane z RAM albo z NVS (<code>credentials::load</code>); jeśli są tylko w RAM, ponawia zapis;</li>
-      <li>brak tożsamości → <code>pending_claim_token()</code>: token z konsoli (NVS <code>claim</code>) albo z Kconfig, pod warunkiem że nie jest oznaczony jako zużyty;</li>
-      <li>brak jednego i drugiego → log „device is not paired” i <code>ulTaskNotifyTake</code> – zadanie śpi, aż komenda <code>claim</code> je obudzi (<code>xTaskNotifyGive</code>);</li>
-      <li><code>wifi::wait_connected()</code> – czeka na adres IP;</li>
-      <li><code>TlsConnection::connect(host, port, ca_pem, skip_cn)</code> – TLS z przypiętym certyfikatem; błąd → <code>backoff()</code>;</li>
-      <li><code>auth_with_credentials()</code> (<code>DEVICE_AUTH</code>) albo <code>claim_device()</code> (<code>DEVICE_CLAIM</code>); porażka → zamknięcie i <code>backoff()</code>;</li>
-      <li>sukces → reset backoff do 2 s i <code>session_loop()</code>;</li>
-      <li>po wyjściu z <code>session_loop</code> – zamknięcie połączenia i kolejny obrót pętli.</li>
-    </ul>
-  </li>
-  <li><code>session_loop()</code>: <code>read_line</code> z krokiem 5 s. Timeout → jeśli od 60 s nic nie przyszło, wysyła <code>PING</code>; jeśli na PING nie ma odpowiedzi przez 15 s – koniec sesji. Linia → <code>Packet::decode</code> → <code>handle()</code>:
-    <ul>
-      <li><code>PING</code> → <code>PONG</code>; <code>PONG</code>/<code>ACK</code> → nic;</li>
-      <li><code>WAKE_UP</code> → <code>handle_wake_up</code> (magic packet, potem <code>WAKE_ACK</code>);</li>
-      <li><code>SET_SECRET</code> → <code>handle_set_secret</code> (zapis do NVS, potem <code>SECRET_ACK</code>);</li>
-      <li><code>UNPAIRED</code> → <code>forget_identity()</code> i wyjście (ESP czeka na nowy claim);</li>
-      <li><code>NACK</code> i nieznane komendy → tylko log, nigdy odpowiedź.</li>
-    </ul>
-  </li>
+<h3 id="lc-esp">5.7 Start ESP32 i sesja</h3>
+<ol>
+<li>Zainicjalizuj szyfrowany NVS. Uszkodzenie lub niezgodność magazynu tożsamości zatrzymuje pracę; pamięć nie jest automatycznie kasowana.</li>
+<li>Odczytaj lub atomowo wygeneruj tożsamość przed przypisaniem. Wczytaj fabryczne dane SRP danego egzemplarza.</li>
+<li>Uruchom skonfigurowaną stację Wi-Fi albo ograniczoną czasowo konfigurację BLE przy pierwszej konfiguracji / fizycznej czynności użytkownika. Utrata Wi-Fi nie kasuje właściciela ani nie włącza przejęcia.</li>
+<li>Uwierzytelnij lokalną konfigurację przez Espressif Security 2. Aplikacja przekazuje claim powiązany z kontem i czas przez <code>wol-claim</code>; standardowy provisioning przekazuje ustawienia Wi-Fi.</li>
+<li>Zaczekaj na Wi-Fi i poprawny zegar. Połącz się przez <code>esp_tls</code>, pakiet głównych CA ESP-IDF, z kontrolą nazwy hosta i ważności certyfikatów.</li>
+<li>Spróbuj <code>DEVICE_AUTH</code> zapisanymi danymi. Jeżeli przypisanie oczekuje, zrealizuj <code>DEVICE_CLAIM [token, device_id, secret]</code>; zachowaj tę samą tożsamość po przerwaniu.</li>
+<li>Obsługuj <code>PING</code>/<code>PONG</code> i <code>WAKE_UP</code>; potwierdzaj magic packet przez <code>WAKE_ACK</code>. Błędy sieci powodują ponowienia z opóźnieniem.</li>
 </ol>
+<p>Sekret urządzenia nie jest zmieniany z aplikacji. Błąd uwierzytelnienia zachowuje tożsamość. Usunięcie urządzenia na serwerze i fizyczne uruchomienie konfiguracji są oddzielnymi operacjami.</p>
 
 <!-- ============================================================ -->
 <h2 id="flows">6. Scenariusze end-to-end</h2>
@@ -527,37 +516,16 @@ RegisterScreen.submit
 </ul>
 <p><strong>Wznowienie sesji</strong> (<code>RESUME</code>) = <code>sessions.refresh</code> (przedłuża ważność o 30 dni od teraz i zwraca <code>user_id</code>) → <code>users.by_id</code> → <code>bind_session</code>.</p>
 
-<h3 id="flow-pair">6.2 Parowanie ESP32 (claim token)</h3>
-<pre>
-Aplikacja (PairDeviceScreen)          Serwer                                  ESP32
-────────────────────────────          ──────                                  ─────
-create → api.createClaim(name) ─────► devices.create_claim
-                                        validate.label
-                                        new_token(16 B)
-                                        claims.create: lock user, limit 10 urządzeń,
-                                          DELETE stary claim, INSERT nowy (TTL 600 s)
-             ACK [token, 600] ◄──────
-pokazuje token + odliczanie,
-przycisk „Kopiuj”
-                         użytkownik wpisuje w konsoli UART:  wol> claim &lt;token&gt;
-                                                                     claim_command
-                                                                       is_token, save_claim_token (NVS)
-                                                                       xTaskNotifyGive → budzi WolClient
-                                                                     run: pending_claim_token → token
-                                                                     wifi::wait_connected, TLS connect
-                                      esp.device_claim ◄──────────── DEVICE_CLAIM [token]
-                                        validate.token, token_hash
-                                        new device_id (12 B), secret (32 B)
-                                        devices.redeem_claim:
-                                          DELETE claim RETURNING (jednorazowość)
-                                          INSERT device (secret_hash)
-                                        attach → registry.attach_device
-                                      ACK [device_id, secret] ──────►  claim_device
-                                                                       creds_ w RAM, persist_identity (NVS)
-                                                                       mark_claim_token_used
-                                                                     session_loop …
-DevicesScreen przy fokusie: LIST_DEVICES → urządzenie „online”
-</pre>
+<h3 id="flow-pair">6.2 Parowanie przez BLE</h3>
+<ol>
+<li>Zalogowana aplikacja skanuje unikalny QR urządzenia i wykrywa odpowiadającą mu nazwę BLE.</li>
+<li>SRP6a uwierzytelnia sesję; AES-GCM chroni dane Wi-Fi i claim konta. Sama nazwa wykrytego urządzenia nie jest dowodem zaufania.</li>
+<li>Aplikacja odczytuje <code>device_id</code> z szyfrowanego endpointu <code>wol-claim</code> i wysyła <code>CREATE_CLAIM [name, device_id]</code>.</li>
+<li>Urządzenie zapisuje claim przed aktywacją Wi-Fi. Jego 256-bitowy sekret i pochodny identyfikator były wcześniej atomowo zapisane.</li>
+<li><code>DEVICE_CLAIM [token, device_id, secret]</code> sprawdza identyfikator wyprowadzony z sekretu, zużywa powiązany token i tworzy urządzenie dla konta w jednej transakcji. Odpowiedź to <code>ACK [device_id]</code>.</li>
+<li>Aplikacja czeka, aż <code>LIST_DEVICES</code> jej konta pokaże dokładnie ten identyfikator online. Sama konfiguracja Wi-Fi nie oznacza sukcesu.</li>
+</ol>
+<p>Format tożsamości i schematy lokalnego endpointu opisuje <a href="../server/PROTOCOL.pl.md">protokół v3</a>. Utratę potwierdzenia claimu naprawia <code>DEVICE_AUTH</code>; powtórzenie z innym sekretem lub kontem nie zmienia właściciela.</p>
 
 <h3 id="flow-wake">6.3 Budzenie komputera (<code>WAKE_UP</code>)</h3>
 <pre>
@@ -585,15 +553,8 @@ Alert „Wysłano”
 (timeout 5 s po stronie serwera → NACK device_unreachable → Alert z błędem + reload)
 </pre>
 
-<h3 id="flow-rotate">6.4 Rotacja sekretu urządzenia</h3>
-<ol class="flow">
-  <li>Aplikacja: <code>DevicesScreen.rotate</code> → potwierdzenie → <code>api.rotateDeviceSecret(id)</code> (timeout 20 s).</li>
-  <li>Serwer <code>devices.rotate_device_secret</code>: urządzenie musi być online i należeć do użytkownika (inaczej <code>device_offline</code> / <code>not_found</code>).</li>
-  <li>Pod <code>link.rotation_lock</code> (rotacje tego samego urządzenia idą po kolei): nowy sekret 32 B → <code>devices.stage_secret</code> zapisuje jego HMAC w <code>next_secret_hash</code>. Stary sekret nadal działa.</li>
-  <li><code>link.request(SET_SECRET, secret, timeout=5)</code> → ESP <code>handle_set_secret</code>: najpierw zapis do NVS (<code>save_secret</code>), dopiero potem <code>SECRET_ACK</code>.</li>
-  <li>Serwer: <code>devices.promote_secret</code> – <code>next_secret_hash</code> staje się <code>secret_hash</code>. Jeśli ESP w międzyczasie zrestartował się i zalogował nowym sekretem, <code>authenticate()</code> już to zrobiło – <code>promote_secret</code> też zwróci sukces.</li>
-  <li>Brak potwierdzenia → serwer rozłącza ESP (<code>registry.detach_device</code>) i zwraca <code>device_unreachable</code>. Nie wiadomo, czy ESP zapisał nowy sekret, więc rozstrzyga to jego następne <code>DEVICE_AUTH</code>: logowanie nowym sekretem awansuje go na bieżący, a logowanie starym kasuje <code>next_secret_hash</code>. Kolejna rotacja wymaga urządzenia online, więc zaczyna się zawsze od czystego stanu i nie nadpisze sekretu, który ESP naprawdę ma.</li>
-</ol>
+<h3 id="flow-recovery">6.4 Odzyskiwanie Wi-Fi i właściciel urządzenia</h3>
+<p>Fizyczne uruchomienie konfiguracji otwiera ograniczone czasowo okno BLE. Dane z QR uwierzytelniają dostęp. Zmiana Wi-Fi zachowuje tożsamość i właściciela na serwerze. Przekazanie urządzenia wymaga usunięcia go z konta przez poprzedniego właściciela; lokalny reset sieci nie usuwa przypisania na serwerze. Firmware nigdy nie kasuje tożsamości tylko dlatego, że logowanie się nie powiodło.</p>
 
 <h3 id="flow-reset">6.5 Reset hasła przez e-mail</h3>
 <ol class="flow">
@@ -616,7 +577,7 @@ Alert „Wysłano”
 
 <h3 id="flow-remove">6.7 Usunięcie urządzenia i konta</h3>
 <ul>
-  <li><strong>REMOVE_DEVICE</strong>: <code>devices.delete</code> (cele przypisane do urządzenia dostają <code>device_id = NULL</code> dzięki <code>ON DELETE SET NULL</code>) → <code>registry.unpair_device</code> wysyła <code>UNPAIRED</code> i zamyka połączenie → ESP <code>forget_identity()</code> kasuje dane z NVS i czeka na nowy claim.</li>
+  <li><strong>REMOVE_DEVICE</strong>: usuwa przypisanie do konta, pozostawia cele z <code>device_id = NULL</code>, wysyła <code>UNPAIRED</code> połączonemu urządzeniu i zamyka połączenie. Urządzenie zachowuje tożsamość; kolejny niesparowany start otwiera ograniczone okno konfiguracji z tym samym uwierzytelnieniem QR.</li>
   <li><strong>DELETE_ACCOUNT</strong>: <code>confirm_password</code> → lista ID urządzeń → <code>users.delete</code> (kaskada usuwa sesje, claimy, urządzenia, cele, kody) → <code>unpair_device</code> dla każdego → <code>kick_user</code> → <code>end_connection</code>. Aplikacja: <code>signOutLocally</code>.</li>
 </ul>
 
@@ -640,12 +601,15 @@ Alert „Wysłano”
   <div class="fn"><code class="sig">class ConfigError</code><p>Wyjątek konfiguracji; <code>main()</code> zamienia go na <code>sys.exit</code>.</p></div>
 </div></details>
 
+<details class="module"><summary><code>wol_server/tls.py</code></summary><div class="body">
+  <div class="fn"><code class="sig">ReloadableTLS(settings) / reload_if_changed()</code><p>Przechowuje aktywny kontekst TLS. Przed podmianą sprawdza pełny łańcuch WebPKI wobec systemowych CA, daty, użycie server-auth, dokładny DNS SAN i zgodność klucza; błąd zachowuje poprzedni kontekst i trafia do logu. Ostrzega od 14 dni przed wygaśnięciem.</p></div>
+</div></details>
+
 <details class="module"><summary><code>wol_server/app.py</code> – serwer TCP/TLS i pętla połączenia</summary><div class="body">
   <div class="fn"><code class="sig">class Timeouts</code><p>Limity czasu: handshake 5 s, logowanie 30 s, bezczynność klienta 300 s, PING do ESP co 30 s, ESP martwe po 90 s, sprzątanie co 3600 s. Wstrzykiwane, żeby testy mogły je skrócić.</p></div>
   <div class="fn"><code class="sig">class ConnectionLimits</code><p>Limity połączeń liczone <em>osobno dla każdego portu</em>: 20/IP i 1000/port łącznie, z czego 5/IP i 256/port przed zalogowaniem.</p></div>
-  <div class="fn"><code class="sig">build_ssl_context(settings)</code><p>Kontekst TLS serwera: minimum TLS 1.2, wyłączona kompresja (CRIME), łańcuch certyfikatu i klucz z plików.</p></div>
   <div class="fn"><code class="sig">WolServer.__init__(settings, services, dispatcher, *, timeouts, limits)</code><p>Zapamiętuje zależności i tworzy po dwa <code>ConnectionLimiter</code> na rolę (ogólny i „przed zalogowaniem”).</p></div>
-  <div class="fn"><code class="sig">WolServer.start()</code><p>Buduje kontekst TLS, otwiera nasłuchiwanie na obu portach (bez TLS – włączany w <code>_on_connect</code>), z limitem linii 4096 B, i uruchamia <code>_purge_loop</code>.</p></div>
+  <div class="fn"><code class="sig">WolServer.start()</code><p>Buduje kontekst TLS, otwiera nasłuchiwanie na obu portach (bez TLS – włączany w <code>_on_connect</code>), z limitem linii 4096 B, i uruchamia sprzątanie oraz obserwowanie zmian TLS.</p></div>
   <div class="fn"><code class="sig">WolServer.port(role)</code><p>Rzeczywisty port nasłuchu (przydatne w testach, gdzie port = 0 oznacza „dowolny wolny”).</p></div>
   <div class="fn"><code class="sig">WolServer.serve_forever()</code><p>Czeka równolegle na oba serwery <code>asyncio</code>.</p></div>
   <div class="fn"><code class="sig">WolServer.close()</code><p>Anuluje sprzątanie, zamyka nasłuchiwanie, zamyka wszystkie aktywne połączenia i czeka na ich zakończenie (do 5 s na serwer).</p></div>
@@ -706,7 +670,7 @@ Alert „Wysłano”
 </div></details>
 
 <details class="module"><summary><code>wol_server/registry.py</code> – połączenia na żywo</summary><div class="body">
-  <div class="fn"><code class="sig">class DeviceLink(device_id, user_id, conn)</code><p>Zalogowane połączenie ESP z mapą oczekujących żądań (<code>request_id → Future</code>) i blokadą <code>rotation_lock</code>.</p></div>
+  <div class="fn"><code class="sig">class DeviceLink(device_id, user_id, conn)</code><p>Uwierzytelnione połączenie ESP z oczekującymi potwierdzeniami budzenia (<code>request_id → Future</code>).</p></div>
   <div class="fn"><code class="sig">DeviceLink.request(command, *args, timeout)</code><p>Losuje <code>request_id</code> (8 B hex), wysyła <code>command [request_id, *args]</code> i czeka na potwierdzenie. Zwraca <code>True</code> po potwierdzeniu, <code>False</code> przy timeoucie lub błędzie gniazda. Zawsze sprząta wpis z mapy.</p></div>
   <div class="fn"><code class="sig">DeviceLink.resolve(request_id)</code><p>Spełnia Future dla danego ID; <code>False</code>, gdy ID nieznane lub już obsłużone (np. spóźnione ACK).</p></div>
   <div class="fn"><code class="sig">DeviceLink.close()</code><p>Zamyka gniazdo i kończy wszystkie oczekujące żądania wyjątkiem.</p></div>
@@ -757,7 +721,7 @@ Alert „Wysłano”
 </div></details>
 
 <details class="module"><summary><code>wol_server/db/schema.py</code> – migracje</summary><div class="body">
-  <div class="fn"><code class="sig">MIGRATIONS</code><p>Lista skryptów SQL: v1 tabele <code>users</code>, <code>sessions</code>, <code>claims</code>, <code>devices</code>, <code>targets</code>; v2 <code>password_resets</code>; v3 kolumna <code>users.session_epoch</code>.</p></div>
+  <div class="fn"><code class="sig">MIGRATIONS</code><p>Migracje SQL wyłącznie do przodu, stosowane pod blokadą advisory. Wersja 4 unieważnia stare claimy bez urządzenia, wiąże nowe z identyfikatorem i zachowuje dawne oczekujące dane do jednorazowego odzyskania.</p></div>
   <div class="fn"><code class="sig">migrate(conn)</code><p>W transakcji wywołującego: blokada doradcza, tabela <code>schema_migrations</code>, zastosowanie brakujących skryptów po kolei. Baza nowsza niż kod → <code>SchemaError</code>.</p></div>
 </div></details>
 
@@ -787,12 +751,11 @@ Alert „Wysłano”
   <div class="fn"><code class="sig">create(user_id, code_hash, ttl)</code><p>Upsert: jeden kod na użytkownika, nowy zastępuje stary i zeruje licznik prób.</p></div>
   <div class="fn"><code class="sig">consume(user_id, code_hash, max_attempts)</code><p>Z blokadą wiersza: dobry kod (porównanie w stałym czasie) jest usuwany i zwraca <code>True</code>; zły zwiększa licznik, a przy limicie kasuje kod.</p></div>
   <h4>ClaimsRepo</h4>
-  <div class="fn"><code class="sig">create(user_id, token_hash, device_name, ttl)</code><p>Z blokadą użytkownika: sprawdza limit 10 urządzeń, usuwa poprzedni claim, wstawia nowy.</p></div>
+  <div class="fn"><code class="sig">create(user_id, token_hash, device_name, device_id, ttl)</code><p>Blokuje konto, sprawdza limit i odrzuca identyfikator już przypisanego urządzenia, zastępuje poprzedni niewykorzystany claim i zapisuje token powiązany z kontem oraz urządzeniem.</p></div>
   <h4>DevicesRepo</h4>
-  <div class="fn"><code class="sig">redeem_claim(claim_hash, device_id, secret_hash)</code><p><code>DELETE ... RETURNING</code> na claimie (atomowa jednorazowość) i utworzenie urządzenia dla właściciela claimu.</p></div>
-  <div class="fn"><code class="sig">authenticate(device_id, secret_hash)</code><p>Porównuje z bieżącym i oczekującym sekretem; jeśli pasuje oczekujący, awansuje go na bieżący, a jeśli pasuje bieżący, kasuje oczekujący (urządzenie go nie zapisało). Aktualizuje <code>last_seen_at</code>.</p></div>
+  <div class="fn"><code class="sig">redeem_claim(claim_hash, device_id, secret_hash)</code><p>Atomowo sprawdza claim powiązany z urządzeniem, zużywa go i tworzy urządzenie. Powtórzenia muszą pasować do pierwotnego claimu, identyfikatora i sekretu; nigdy nie zmieniają właściciela.</p></div>
+  <div class="fn"><code class="sig">authenticate(device_id, secret_hash)</code><p>Weryfikuje zapisany sekret i aktualizuje ostatnią aktywność. Dawny oczekujący sekret służy tylko jednorazowemu odzyskaniu podczas migracji; pierwsze udane logowanie rozstrzyga dane.</p></div>
   <div class="fn"><code class="sig">list / rename / delete / owns / touch</code><p>Operacje CRUD zawsze zawężone do <code>user_id</code>; <code>touch</code> zapisuje <code>last_seen_at</code>.</p></div>
-  <div class="fn"><code class="sig">stage_secret / promote_secret</code><p>Dwie fazy rotacji sekretu: zapis w <code>next_secret_hash</code>, potem przeniesienie do <code>secret_hash</code> (sukces także, gdy już przeniesiony).</p></div>
   <h4>TargetsRepo</h4>
   <div class="fn"><code class="sig">add(user_id, device_id, mac, name)</code><p>Z blokadą użytkownika: własność urządzenia, limit 64 celów, unikalność MAC (<code>duplicate</code>).</p></div>
   <div class="fn"><code class="sig">get / list / rename / assign / remove</code><p>CRUD celów; <code>assign</code> sprawdza, czy nowe urządzenie należy do użytkownika.</p></div>
@@ -828,10 +791,9 @@ Alert „Wysłano”
 </div></details>
 
 <details class="module"><summary><code>handlers/devices.py</code> – urządzenia (komendy aplikacji)</summary><div class="body">
-  <div class="fn"><code class="sig">create_claim</code><p>Token 16 B, zapis HMAC z nazwą urządzenia, TTL 600 s → <code>ACK [token, 600]</code>.</p></div>
+  <div class="fn"><code class="sig">create_claim</code><p>Tworzy token 128-bitowy powiązany z kontem i podanym identyfikatorem urządzenia, z TTL 600 s. Zwraca <code>ACK [token, 600]</code>.</p></div>
   <div class="fn"><code class="sig">list_devices</code><p>Urządzenia z bazy + status online z <code>Registry</code> + <code>last_seen_at</code> jako znacznik Unix.</p></div>
   <div class="fn"><code class="sig">rename_device / remove_device</code><p>Zmiana nazwy / usunięcie z bazy i <code>unpair_device</code>.</p></div>
-  <div class="fn"><code class="sig">rotate_device_secret</code><p>Dwufazowa rotacja pod <code>rotation_lock</code> (<a href="#flow-rotate">6.4</a>). Rozróżnia <code>not_found</code> (cudze/nieistniejące) od <code>device_offline</code>.</p></div>
 </div></details>
 
 <details class="module"><summary><code>handlers/targets.py</code> – komputery do budzenia</summary><div class="body">
@@ -842,10 +804,10 @@ Alert „Wysłano”
 
 <details class="module"><summary><code>handlers/esp.py</code> – komendy urządzeń</summary><div class="body">
   <div class="fn"><code class="sig">attach(ctx, device)</code><p>Ustawia <code>device_id</code>/<code>user_id</code> w sesji i rejestruje <code>DeviceLink</code>.</p></div>
-  <div class="fn"><code class="sig">device_claim</code><p>Realizacja claimu: nowe <code>device_id</code> (12 B) i sekret (32 B), <code>redeem_claim</code>, <code>attach</code> → <code>ACK [device_id, secret]</code>. Jawny sekret istnieje tylko w tej odpowiedzi.</p></div>
+  <div class="fn"><code class="sig">device_claim</code><p>Sprawdza identyfikator wyprowadzony z sekretu i realizuje powiązany claim danymi dostarczonymi przez urządzenie. Zwraca <code>ACK [device_id]</code>; nie wydaje nowego sekretu.</p></div>
   <div class="fn"><code class="sig">device_auth</code><p>Sprawdza format obu wartości (źle sformatowane = od razu <code>invalid_credentials</code>, bez zapytania), <code>devices.authenticate</code>, <code>attach</code>.</p></div>
   <div class="fn"><code class="sig">ping / pong</code><p><code>PING</code> → <code>PONG</code>; <code>PONG</code> → brak odpowiedzi (tylko odświeża aktywność).</p></div>
-  <div class="fn"><code class="sig">acknowledge(ctx, request_id)</code> (<code>WAKE_ACK</code> i <code>SECRET_ACK</code>)<p>Spełnia oczekujące żądanie w <code>DeviceLink</code>, jeśli potwierdzenie przyszło z aktualnego połączenia urządzenia. Nigdy nie odpowiada.</p></div>
+  <div class="fn"><code class="sig">acknowledge(ctx, request_id)</code><p>Rozstrzyga oczekujące <code>WAKE_ACK</code> tylko dla bieżącego połączenia urządzenia. Nie odpowiada.</p></div>
 </div></details>
 
 <h3 id="ref-client">7.2 Aplikacja <span class="tag client">TypeScript</span></h3>
@@ -864,7 +826,7 @@ Alert „Wysłano”
 
 <details class="module"><summary><code>src/api/connection.ts</code> – <code>WolConnection</code></summary><div class="body">
   <div class="fn"><code class="sig">constructor(onClosed)</code><p>Callback wywoływany, gdy <em>nawiązane</em> połączenie zerwie się samo.</p></div>
-  <div class="fn"><code class="sig">connect(host, port)</code><p>Zamyka poprzednie, otwiera <code>connectTLS</code> z przypiętym CA, timeout 10 s, rejestruje obsługę <code>data</code>/<code>error</code>/<code>close</code>. Każdy handler sprawdza <code>this.socket === socket</code>, więc zdarzenia starego gniazda są ignorowane. Po połączeniu uruchamia <code>PING</code> co 60 s.</p></div>
+  <div class="fn"><code class="sig">connect(host, port)</code><p>Otwiera TLS z systemowym magazynem zaufania i jawną kontrolą hosta. Przypięta poprawka zależności Android wymusza TLS 1.2+ oraz identyfikację endpointu. Timeout 10 s; heartbeat 60 s.</p></div>
   <div class="fn"><code class="sig">request(command, args, timeoutMs = 15000)</code><p>Wysyła ramkę i dopisuje oczekiwanie na koniec kolejki. Timeout <strong>zamyka połączenie</strong> (<code>fail("timeout")</code>), bo spóźniona odpowiedź zostałaby przypisana do następnego żądania.</p></div>
   <div class="fn"><code class="sig">close()</code><p>Zamknięcie z inicjatywy aplikacji (bez <code>onClosed</code>).</p></div>
   <div class="fn"><code class="sig">onData(chunk) / onLine(line)</code><p>Buforowanie i cięcie po <code>\n</code>; przepełnienie bufora ponad 64 KiB → <code>protocol_error</code>. Każda linia rozstrzyga pierwsze oczekujące żądanie (ACK/PONG → resolve, NACK → reject z kodem).</p></div>
@@ -884,7 +846,7 @@ Alert „Wysłano”
   <div class="fn"><code class="sig">changePassword / changeName</code><p>Zwracają nowy token / nową nazwę.</p></div>
   <div class="fn"><code class="sig">requestPasswordReset(email)</code><p>Na połączeniu pobocznym (<code>withSideConnection</code>), nie ruszając głównego.</p></div>
   <div class="fn"><code class="sig">revokeToken(token)</code><p>Na połączeniu pobocznym: <code>RESUME</code> starym tokenem i <code>LOGOUT</code>; token już nieważny = sukces.</p></div>
-  <div class="fn"><code class="sig">createClaim, listDevices, renameDevice, removeDevice, rotateDeviceSecret</code><p>Urządzenia; rotacja z timeoutem 20 s.</p></div>
+  <div class="fn"><code class="sig">createClaim, listDevices, renameDevice, removeDevice</code><p>Zarządzanie urządzeniami; <code>createClaim(name, deviceId)</code> wiąże parowanie z tożsamością odczytaną przez uwierzytelnione BLE.</p></div>
   <div class="fn"><code class="sig">addTarget, listTargets, renameTarget, assignTarget, removeTarget, wakeUp</code><p>Cele; <code>wakeUp</code> z timeoutem 20 s (serwer czeka na ESP do 5 s).</p></div>
   <div class="fn"><code class="sig">call(command, args, timeoutMs)</code><p>Wspólna ścieżka komend po zalogowaniu: <code>ensureSession</code> → <code>request</code>; <code>invalid_token</code> → <code>sessionRevoked</code>.</p></div>
   <div class="fn"><code class="sig">sessionRevoked()</code><p>Czyści token, rozłącza, woła <code>onSessionInvalid</code>.</p></div>
@@ -937,43 +899,34 @@ Alert „Wysłano”
   <div class="fn"><code class="sig">(auth)/reset.tsx: sendCode, submit</code><p>Dwa kroki: e-mail → kod + nowe hasło.</p></div>
   <div class="fn"><code class="sig">(tabs)/_layout.tsx: icon, HeaderLink</code><p>Zakładki Komputery / Urządzenia / Konto z przyciskami w nagłówku.</p></div>
   <div class="fn"><code class="sig">(tabs)/index.tsx: TargetsScreen, wake, TargetCard</code><p>Lista celów z informacją o urządzeniu; przycisk „Wybudź” nieaktywny bez urządzenia i w trakcie innego budzenia.</p></div>
-  <div class="fn"><code class="sig">(tabs)/devices.tsx: DevicesScreen, lastSeen, rotate, remove</code><p>Lista urządzeń, zmiana nazwy (PromptModal), rotacja (tylko online), usunięcie.</p></div>
+  <div class="fn"><code class="sig">(tabs)/devices.tsx: DevicesScreen, lastSeen, remove</code><p>Lista urządzeń, zmiana nazwy i usuwanie. Bez ręcznego zarządzania sekretem.</p></div>
   <div class="fn"><code class="sig">(tabs)/account.tsx: AccountScreen, logoutAll, dialogs</code><p>Konfiguracja trzech okien (nazwa, hasło, usunięcie) w jednym obiekcie i jeden <code>PromptModal</code>.</p></div>
   <div class="fn"><code class="sig">target/new.tsx: NewTargetScreen, submit</code><p>Dodanie celu; automatyczny wybór, gdy jest jedno urządzenie.</p></div>
   <div class="fn"><code class="sig">target/[id].tsx: EditTargetScreen, load, save, remove</code><p>Edycja nazwy i przypisania (MAC niezmienny – trzeba usunąć i dodać ponownie).</p></div>
-  <div class="fn"><code class="sig">device/pair.tsx: PairDeviceScreen, formatRemaining, create, copy</code><p>Tworzenie claimu, odliczanie ważności, kopiowanie do schowka, instrukcja.</p></div>
+  <div class="fn"><code class="sig">device/pair.tsx: PairDeviceScreen</code><p>Skan QR, wykrywanie BLE i sesja Security 2, wybór Wi-Fi, przypisanie do konta, następnie potwierdzenie serwera. Przebieg obsługuje błędy uprawnień, anulowanie i limity czasu.</p></div>
 </div></details>
 
 <h3 id="ref-esp">7.3 Firmware <span class="tag esp">C++</span></h3>
 
 <details class="module"><summary><code>main/main.cpp</code></summary><div class="body">
-  <div class="fn"><code class="sig">app_main()</code><p>NVS → Wi-Fi → zadanie <code>wol_client</code> → konsola.</p></div>
-  <div class="fn"><code class="sig">init_nvs()</code><p>Inicjalizacja NVS (z kluczami szyfrowania); przy niekompatybilnej partycji kasuje i próbuje ponownie.</p></div>
-  <div class="fn"><code class="sig">is_token(value)</code><p>Ten sam format co na serwerze (16–128 znaków <code>A-Za-z0-9_-</code>).</p></div>
-  <div class="fn"><code class="sig">claim_command(argc, argv)</code><p>Komenda konsoli <code>claim &lt;token&gt;</code>: walidacja, zapis w NVS, <code>xTaskNotifyGive</code> dla zadania klienta.</p></div>
-  <div class="fn"><code class="sig">start_console()</code><p>REPL na UART z promptem <code>wol&gt;</code>.</p></div>
-  <div class="fn"><code class="sig">client_task(void*)</code><p>Tworzy <code>WolClient</code> z konfiguracją z Kconfig i certyfikatem wkompilowanym przez <code>EMBED_TXTFILES</code>; <code>run()</code> nigdy nie wraca.</p></div>
+  <div class="fn"><code class="sig">app_main()</code><p>Zainicjalizuj szyfrowany NVS bez destrukcyjnego fallbacku, uruchom Wi-Fi dla entropii, zapewnij trwałą tożsamość, uruchom bezpieczny onboarding, następnie zadanie klienta serwera.</p></div>
+  <div class="fn"><code class="sig">client_task(void*)</code><p>Tworzy <code>WolClient</code> z publiczną nazwą hosta i portem urządzeń; jego pętla główna nie wraca.</p></div>
 </div></details>
 
 <details class="module"><summary><code>network/wol_client.{hpp,cpp}</code> – <code>WolClient</code></summary><div class="body">
-  <div class="fn"><code class="sig">WolClientConfig</code><p>Host, port, CA PEM, pominięcie sprawdzania nazwy, claim token z Kconfig.</p></div>
+  <div class="fn"><code class="sig">WolClientConfig</code><p>Publiczna nazwa DNS serwera i port urządzeń. Zaufanie pochodzi z pakietu CA ESP-IDF, a nie pola certyfikatu.</p></div>
   <div class="fn"><code class="sig">run()</code><p>Główna pętla (<a href="#lc-esp">5.7</a>).</p></div>
-  <div class="fn"><code class="sig">load_identity()</code><p>Tożsamość z RAM lub NVS; ponawia zapis danych, które są tylko w RAM.</p></div>
-  <div class="fn"><code class="sig">pending_claim_token(token)</code><p>Token z konsoli (pierwszeństwo) albo z Kconfig, jeśli nie jest zużyty.</p></div>
-  <div class="fn"><code class="sig">forget_identity()</code><p>Kasuje tożsamość z NVS i RAM (rekord zużytego claimu zostaje).</p></div>
-  <div class="fn"><code class="sig">persist_identity()</code><p>Do 3 prób zapisu w NVS co 200 ms; przy porażce log błędu – urządzenie działa dalej z danymi w RAM.</p></div>
-  <div class="fn"><code class="sig">auth_with_credentials(creds)</code><p><code>DEVICE_AUTH</code>; <code>invalid_credentials</code> → <code>forget_identity</code> (urządzenie zostało usunięte lub sekret jest nieaktualny).</p></div>
-  <div class="fn"><code class="sig">claim_device(token)</code><p><code>DEVICE_CLAIM</code>; sukces → zapis danych i oznaczenie tokenu jako zużytego; <code>invalid_token</code> → też oznaczenie (nie wysyłać ponownie).</p></div>
+  <div class="fn"><code class="sig">auth_with_credentials(creds)</code><p>Wysyła <code>DEVICE_AUTH</code>. Sukces zapisuje stan przypisania w NVS; odrzucenie zachowuje dane i pozwala jedynie spróbować oczekującego claimu.</p></div>
+  <div class="fn"><code class="sig">claim_device(token)</code><p>Wysyła <code>DEVICE_CLAIM [token, id, secret]</code> z wcześniej zapisaną tożsamością. Sprawdza zwrócony identyfikator; niepoprawny/wygasły token jest usuwany bez kasowania tożsamości.</p></div>
   <div class="fn"><code class="sig">session_loop()</code><p>Odczyt z krokiem 5 s, własny heartbeat (PING po 60 s ciszy, 15 s na PONG), dekodowanie i <code>handle</code>.</p></div>
   <div class="fn"><code class="sig">handle(packet)</code><p>Rozdziela komendy serwera; zwraca <code>false</code>, gdy sesję trzeba zakończyć.</p></div>
   <div class="fn"><code class="sig">handle_wake_up(packet)</code><p>Walidacja argumentów i MAC, <code>send_magic_packet</code>, dopiero potem <code>WAKE_ACK</code>. Przy błędzie brak ACK – serwer zgłosi <code>device_unreachable</code>.</p></div>
-  <div class="fn"><code class="sig">handle_set_secret(packet)</code><p>Najpierw trwały zapis nowego sekretu, potem aktualizacja RAM i <code>SECRET_ACK</code>. Gdy NVS nie działa od początku, akceptuje sekret tylko w RAM.</p></div>
   <div class="fn"><code class="sig">send / await_reply</code><p>Wysłanie linii / oczekiwanie do 10 s na <code>ACK</code> lub <code>NACK</code>.</p></div>
   <div class="fn"><code class="sig">backoff()</code><p>Opóźnienie ze składnikiem losowym (do +50%), podwajane od 2 s do 60 s.</p></div>
 </div></details>
 
 <details class="module"><summary><code>network/tls_connection.{hpp,cpp}</code> – <code>TlsConnection</code></summary><div class="body">
-  <div class="fn"><code class="sig">connect(host, port, ca_pem, skip_common_name)</code><p><code>esp_tls</code> z przypiętym CA i timeoutem 10 s.</p></div>
+  <div class="fn"><code class="sig">connect(host, port)</code><p><code>esp_tls</code> z pakietem CA ESP-IDF, obowiązkową kontrolą nazwy hosta i ważności oraz timeoutem 10 s.</p></div>
   <div class="fn"><code class="sig">close()</code><p>Zniszczenie sesji TLS i bufora. Destruktor woła <code>close</code>.</p></div>
   <div class="fn"><code class="sig">send_line(line)</code><p>Pisze w pętli do skutku, z globalnym terminem 10 s (pojedynczy zapis może zwracać WANT_WRITE bez końca).</p></div>
   <div class="fn"><code class="sig">read_line(line, timeout_ms)</code><p>Zwraca <code>Line</code>/<code>Timeout</code>/<code>Closed</code>/<code>Error</code>. Najpierw sprawdza bufor, potem <code>esp_tls_get_bytes_avail</code> (odszyfrowane dane mogą czekać w mbedTLS niewidoczne dla <code>select</code>), dopiero potem <code>select</code> z pozostałym czasem. Linia &gt; 4096 B = <code>Error</code>.</p></div>
@@ -989,19 +942,31 @@ Alert „Wysłano”
 </div></details>
 
 <details class="module"><summary><code>storage/credentials.{hpp,cpp}</code> – NVS</summary><div class="body">
-  <div class="fn"><code class="sig">Credentials {device_id, secret}</code><p>Tożsamość urządzenia.</p></div>
-  <div class="fn"><code class="sig">load / save / save_secret / erase</code><p>Odczyt obu kluczy, zapis obu, zapis samego sekretu, usunięcie obu (z <code>nvs_commit</code>).</p></div>
-  <div class="fn"><code class="sig">load_claim_token / save_claim_token</code><p>Token wpisany w konsoli (klucz <code>claim</code>).</p></div>
-  <div class="fn"><code class="sig">is_claim_token_used / mark_claim_token_used</code><p>Ostatni token zużyty/odrzucony (klucz <code>used_claim</code>); oznaczenie usuwa też <code>claim</code>.</p></div>
-  <div class="fn"><code class="sig">NvsHandle</code><p>RAII dla uchwytu NVS (zamknięcie w destruktorze).</p></div>
-  <div class="fn"><code class="sig">read_string / read_key / erase_key / write</code><p>Pomocnicze operacje; brak klucza przy kasowaniu nie jest błędem.</p></div>
+  <div class="fn"><code class="sig">Credentials {device_id, secret, claim_token, paired}</code><p>Atomowy rekord zawierający identyfikator, sekret, oczekujący claim i flagę przypisania.</p></div>
+  <div class="fn"><code class="sig">load / ensure_identity</code><p>Odczytuje pojedynczy wersjonowany blob NVS. <code>ensure_identity</code> zachowuje migrowane stare dane albo tworzy losowy sekret 256-bitowy i identyfikator z SHA-256 przed przypisaniem.</p></div>
+  <div class="fn"><code class="sig">save_claim_token</code><p>Zapisuje claim w atomowym rekordzie tożsamości; bez wejścia z konsoli szeregowej.</p></div>
+  <div class="fn"><code class="sig">mark_paired / mark_unpaired / clear_claim_token</code><p>Atomowo aktualizują stan przypisania i oczekujący claim, zachowując identyfikator oraz sekret.</p></div>
+  <div class="fn"><code class="sig">Handle</code><p>RAII dla uchwytów NVS; serializacja aktualizacji rekordu i zerowanie buforów sekretu.</p></div>
+  <div class="fn"><code class="sig">read / write / update</code><p>Sprawdzają format rekordu i zatwierdzają zapis blobu; uszkodzona pamięć nigdy po cichu nie tworzy nowej tożsamości.</p></div>
 </div></details>
 
 <details class="module"><summary><code>wifi/wifi.{hpp,cpp}</code></summary><div class="body">
-  <div class="fn"><code class="sig">start(ssid, password)</code><p>Inicjalizacja netif, pętli zdarzeń, Wi-Fi STA; puste hasło = sieć otwarta, inaczej minimum WPA2-PSK.</p></div>
-  <div class="fn"><code class="sig">on_event(...)</code><p>Start → connect; rozłączenie → wyczyszczenie bitu i ponowne connect; IP → ustawienie bitu; utrata IP → wyczyszczenie.</p></div>
+  <div class="fn"><code class="sig">start()</code><p>Inicjalizuje pętlę zdarzeń i stację Wi-Fi; korzysta z zapisanych danych Wi-Fi. Dane klienta pochodzą z konfiguracji BLE.</p></div>
+  <div class="fn"><code class="sig">on_event(...)</code><p>Śledzi połączenie stacji i ponawia po rozłączeniu; aktywna konfiguracja steruje próbami połączenia.</p></div>
   <div class="fn"><code class="sig">wait_connected()</code><p>Oczekiwanie na bit połączenia.</p></div>
-  <div class="fn"><code class="sig">copy_field</code><p>Kopiuje SSID/hasło z obcięciem do rozmiaru pola.</p></div>
+</div></details>
+
+<details class="module"><summary><code>onboarding/onboarding.{hpp,cpp}</code> – bezpieczna konfiguracja BLE</summary><div class="body">
+<div class="fn"><code class="sig">start / complete</code><p>Wczytują unikalną fabryczną sól/weryfikator SRP, wymagają Security 2 w wersji poprawki 1, rejestrują <code>wol-claim</code> i ograniczają konfigurację do dziesięciu minut oraz pięciu błędnych prób uwierzytelnienia. Dedykowany GPIO aktywny stanem niskim trzymany trzy sekundy przy starcie otwiera odzyskiwanie. Sukces zamyka konfigurację.</p></div>
+<div class="fn"><code class="sig">claim_handler</code><p>Ściśle sprawdzany endpoint JSON: <code>info</code> zwraca identyfikator/stan; <code>claim</code> zapisuje token/czas; <code>configure</code> przyjmuje czas przy fizycznym odzyskiwaniu Wi-Fi. Nigdy nie ujawnia sekretu urządzenia.</p></div>
+</div></details>
+<details class="module"><summary><code>device_clock/device_clock.{hpp,cpp}</code> – uruchamianie zegara</summary><div class="body">
+<div class="fn"><code class="sig">set_from_phone / synchronize / checkpoint</code><p>Przyjmują czas z uwierzytelnionej konfiguracji BLE. Przy kolejnych uruchomieniach czas pochodzi z SNTP i ma dolną granicę daty buildu oraz ostatniego trwałego punktu. Zapis punktu następuje po zweryfikowanym logowaniu do chmury; SNTP zatrzymuje się od razu po początkowej próbce. Tylko fizyczna konfiguracja i uwierzytelnienie QR/SRP mogą naprawić błędny punkt z przyszłości, obniżając go do czasu telefonu (nigdy poniżej 2026-01-01). Zwykły SNTP nie jest uwierzytelnionym czasem; dolna granica zapobiega cofnięciu poniżej punktu, lecz nie zapewnia pełnego zaufania do czasu z sieci.</p></div>
+</div></details>
+
+<details class="module"><summary><code>updates/updates.{hpp,cpp}</code> – podpisane OTA</summary><div class="body">
+<div class="fn"><code class="sig">start / cloud_ready</code><p>Planują aktualizacje stabilnego obrazu niezależnie od logowania do serwera; uruchamiają termin nowego obrazu i zatwierdzają slot dopiero po udanym logowaniu do chmury. Niepotwierdzony obraz powoduje rollback po 120 sekundach.</p></div>
+<div class="fn"><code class="sig">update_task / check_update</code><p>Sprawdzają stały URL HTTPS mniej więcej codziennie, tylko przy Secure Boot i anti-rollback. Wymagają tego samego projektu, ściśle nowszej wersji liczbowej i poprawnej secure version; używają bezpośredniego strumienia klienta HTTP wymagającego HTTP 200 i Content-Length, odrzucają przekierowania/chunked, weryfikują podpis przez esp_ota_end i zapisują nieaktywny slot w limicie dziesięciu minut pobierania. NVS zostaje zachowany. Główne CA są utrzymywane w podpisanych obrazach.</p></div>
 </div></details>
 
 <details class="module"><summary><code>wol/magic_packet.{hpp,cpp}</code></summary><div class="body">
@@ -1017,8 +982,8 @@ Alert „Wysłano”
 <tr><th>Tabela</th><th>Kolumny</th><th>Ograniczenia i uwagi</th></tr>
 <tr><td><code>users</code></td><td><code>id</code>, <code>name</code>, <code>email</code>, <code>password_hash</code>, <code>created_at</code>, <code>session_epoch</code></td><td>Unikalne <code>lower(name)</code> i <code>lower(email)</code>. <code>session_epoch</code> rośnie przy każdym unieważnieniu.</td></tr>
 <tr><td><code>sessions</code></td><td><code>token_hash</code> (PK), <code>user_id</code>, <code>created_at</code>, <code>last_used_at</code>, <code>expires_at</code></td><td>Kaskada z <code>users</code>. Max 20 na użytkownika (najstarsze usuwane).</td></tr>
-<tr><td><code>claims</code></td><td><code>token_hash</code> (PK), <code>user_id</code> (UNIQUE), <code>device_name</code>, <code>expires_at</code></td><td>Jeden aktywny claim na użytkownika.</td></tr>
-<tr><td><code>devices</code></td><td><code>id</code> (PK, tekst), <code>user_id</code>, <code>name</code>, <code>secret_hash</code>, <code>next_secret_hash</code>, <code>created_at</code>, <code>last_seen_at</code></td><td>Max 10 na użytkownika. <code>next_secret_hash</code> – sekret w trakcie rotacji.</td></tr>
+<tr><td><code>claims</code></td><td><code>token_hash</code> (PK), <code>user_id</code> (UNIQUE), <code>device_name</code>, <code>device_id</code>, <code>expires_at</code></td><td>Jeden niewykorzystany claim na użytkownika, przypisany do jednego urządzenia.</td></tr>
+<tr><td><code>devices</code></td><td><code>id</code>, <code>user_id</code>, <code>name</code>, <code>secret_hash</code>, <code>enrollment_hash</code>, <code>recovery_secret_hash</code>, znaczniki czasu</td><td>Maks. 10 na użytkownika. Skrót claimu wspiera idempotentne przypisanie; skrót odzyskania dotyczy tylko danych przerwanych przed aktualizacją.</td></tr>
 <tr><td><code>targets</code></td><td><code>id</code>, <code>user_id</code>, <code>device_id</code>, <code>mac</code>, <code>name</code></td><td>UNIQUE(<code>user_id</code>, <code>mac</code>). <code>device_id</code> → <code>ON DELETE SET NULL</code>. Max 64.</td></tr>
 <tr><td><code>password_resets</code></td><td><code>user_id</code> (PK), <code>code_hash</code>, <code>attempts</code>, <code>expires_at</code></td><td>Jeden kod na użytkownika.</td></tr>
 <tr><td><code>schema_migrations</code></td><td><code>version</code>, <code>applied_at</code></td><td>Numery zastosowanych migracji.</td></tr>
@@ -1033,17 +998,17 @@ Alert „Wysłano”
 <ul>
   <li>Ramka: <code>{"KOMENDA":[argumenty]}\n</code>, max 4096 B do serwera (odpowiedzi serwera do aplikacji do 64 KiB). Odpowiedź: <code>{"ACK":[...]}</code> lub <code>{"NACK":["kod"]}</code>.</li>
   <li><strong>Port klienta</strong>: klient wysyła żądanie, czeka na odpowiedź, dopiero potem wysyła następne. Odpowiedzi nie mają ID.</li>
-  <li><strong>Port urządzeń</strong>: serwer wysyła do ESP <code>WAKE_UP [request_id, mac]</code> i <code>SET_SECRET [request_id, secret]</code>; ESP potwierdza <code>WAKE_ACK</code>/<code>SECRET_ACK [request_id]</code>. <code>PING</code>/<code>PONG</code> w obie strony. <code>UNPAIRED</code> – urządzenie usunięte.</li>
-  <li>ESP nigdy nie odpowiada na <code>ACK</code>/<code>NACK</code>, a serwer nie odpowiada na <code>PONG</code>, <code>WAKE_ACK</code>, <code>SECRET_ACK</code> – nie ma możliwości pętli.</li>
+  <li><strong>Port urządzeń</strong>: serwer wysyła do ESP <code>WAKE_UP [request_id, mac]</code>; ESP potwierdza <code>WAKE_ACK [request_id]</code>. <code>PING</code>/<code>PONG</code> w obie strony. <code>UNPAIRED</code> – urządzenie usunięte.</li>
+  <li>ESP nigdy nie odpowiada na <code>ACK</code>/<code>NACK</code>, a serwer nie odpowiada na <code>PONG</code>, <code>WAKE_ACK</code> – nie ma możliwości pętli.</li>
 </ul>
 <table>
 <tr><th>Grupa</th><th>Komendy</th></tr>
 <tr><td>Przed zalogowaniem (klient)</td><td><code>REGISTER</code>, <code>LOGIN</code>, <code>RESUME</code>, <code>REQUEST_PASSWORD_RESET</code>, <code>RESET_PASSWORD</code></td></tr>
 <tr><td>Konto</td><td><code>PING</code>, <code>LOGOUT</code>, <code>LOGOUT_ALL</code>, <code>CHANGE_PASSWORD</code>, <code>CHANGE_NAME</code>, <code>DELETE_ACCOUNT</code></td></tr>
-<tr><td>Urządzenia</td><td><code>CREATE_CLAIM</code>, <code>LIST_DEVICES</code>, <code>RENAME_DEVICE</code>, <code>REMOVE_DEVICE</code>, <code>ROTATE_DEVICE_SECRET</code></td></tr>
+<tr><td>Urządzenia</td><td><code>CREATE_CLAIM</code>, <code>LIST_DEVICES</code>, <code>RENAME_DEVICE</code>, <code>REMOVE_DEVICE</code></td></tr>
 <tr><td>Cele</td><td><code>ADD_TARGET</code>, <code>LIST_TARGETS</code>, <code>RENAME_TARGET</code>, <code>ASSIGN_TARGET</code>, <code>REMOVE_TARGET</code>, <code>WAKE_UP</code></td></tr>
-<tr><td>ESP → serwer</td><td><code>DEVICE_CLAIM</code>, <code>DEVICE_AUTH</code>, <code>PING</code>, <code>PONG</code>, <code>WAKE_ACK</code>, <code>SECRET_ACK</code></td></tr>
-<tr><td>Serwer → ESP</td><td><code>PING</code>, <code>WAKE_UP</code>, <code>SET_SECRET</code>, <code>UNPAIRED</code></td></tr>
+<tr><td>ESP → serwer</td><td><code>DEVICE_CLAIM</code>, <code>DEVICE_AUTH</code>, <code>PING</code>, <code>PONG</code>, <code>WAKE_ACK</code></td></tr>
+<tr><td>Serwer → ESP</td><td><code>PING</code>, <code>WAKE_UP</code>, <code>UNPAIRED</code></td></tr>
 </table>
 
 <!-- ============================================================ -->
@@ -1099,9 +1064,9 @@ Alert „Wysłano”
 <p class="why"><span class="label">Dlaczego:</span> rola połączenia wynika z portu, a nie z deklaracji klienta – ESP fizycznie nie może wywołać komendy aplikacji i odwrotnie (routing po <code>(rola, komenda)</code>). Limity połączeń są liczone osobno, więc zalanie jednego portu nie odcina drugiego. Różne timeouty (300 s vs heartbeat 30/90 s). Na zaporze można różnie traktować oba porty.</p>
 <p class="cost"><span class="label">Koszt:</span> dwa porty do otwarcia na serwerze.</p></div>
 
-<div class="adr"><h4>D4. Wi-Fi i adres serwera wkompilowane w firmware (bez BLE/SoftAP)</h4>
-<p class="why"><span class="label">Dlaczego:</span> provisioning przez BLE lub punkt dostępowy to dużo kodu, dodatkowa powierzchnia ataku i osobny ekran w aplikacji. Dla urządzenia instalowanego raz, przez właściciela z dostępem do USB, Kconfig jest wystarczający.</p>
-<p class="cost"><span class="label">Koszt:</span> zmiana sieci Wi-Fi lub adresu serwera wymaga ponownego zbudowania i wgrania firmware.</p></div>
+<div class="adr"><h4>D4. Konfiguracja Wi-Fi przez uwierzytelnione BLE</h4>
+<p class="why"><span class="label">Dlaczego:</span> Klient wybiera Wi-Fi w aplikacji. Espressif Security 2 chroni lokalną sesję unikalnymi danymi QR egzemplarza. Adres backendu pozostaje konfiguracją produktu.</p>
+<p class="cost"><span class="label">Koszt:</span> Wymaga danych fabrycznych, fizycznego uruchamiania konfiguracji, natywnej obsługi Androida i testów sprzętowych.</p></div>
 
 <h3 id="adr-protocol">11.2 Protokół</h3>
 
@@ -1135,9 +1100,9 @@ Alert „Wysłano”
 
 <h3 id="adr-security">11.3 Bezpieczeństwo</h3>
 
-<div class="adr"><h4>D12. TLS z przypiętym certyfikatem (self-signed) w aplikacji i firmware</h4>
-<p class="why"><span class="label">Dlaczego:</span> nie jest potrzebna domena ani publiczne CA; serwer może działać pod samym adresem IP. Przypięcie chroni przed MITM nawet przy przejętym CA systemowym. Na ESP wyłączony pakiet certyfikatów (<code>CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n</code>) – ufa tylko jednemu certyfikatowi. Min. TLS 1.2, bez kompresji.</p>
-<p class="cost"><span class="label">Koszt:</span> wymiana certyfikatu (np. po wygaśnięciu po 365 dniach) wymaga nowej wersji aplikacji i nowego firmware.</p></div>
+<div class="adr"><h4>D12. Publiczne CA i automatyczne odnawianie certyfikatu</h4>
+<p class="why"><span class="label">Dlaczego:</span> Klienci weryfikują łańcuch, nazwę hosta i ważność wobec zaufanych CA. Odnowienie ACME zastępuje certyfikat serwera bez nowej aplikacji i firmware. Serwer przeładowuje tylko poprawnie zweryfikowane pliki.</p>
+<p class="cost"><span class="label">Koszt:</span> Wymaga publicznej domeny, monitorowania odnowień i utrzymywanego magazynu zaufania firmware. Zmiana głównego CA nadal wymaga planowej aktualizacji; odnawianie nie gwarantuje nieograniczonej zgodności offline.</p></div>
 
 <div class="adr"><h4>D13. TLS włączany po sprawdzeniu limitów połączeń</h4>
 <p class="why"><span class="label">Dlaczego:</span> handshake TLS kosztuje CPU. <code>start_server</code> bez <code>ssl</code> i ręczne <code>start_tls</code> w <code>_on_connect</code> sprawiają, że nadmiarowe połączenia są odrzucane przed kosztownym handshakiem. Połączenia w trakcie handshake wliczają się do limitu „niezalogowanych”.</p>
@@ -1197,7 +1162,7 @@ Alert „Wysłano”
 
 <div class="adr"><h4>D27. Szyfrowanie flash i NVS na ESP32; profil release z Secure Boot v2</h4>
 <p class="why"><span class="label">Dlaczego:</span> <code>device_secret</code> pozwala podszyć się pod urządzenie. Bez szyfrowania można go odczytać z flasha przez UART. Tryb Development pozwala jeszcze flashować; Release + Secure Boot v2 blokuje odczyt i nieautoryzowany firmware.</p>
-<p class="cost"><span class="label">Koszt:</span> pierwszy start trwale zapisuje klucz w eFuse; Release i Secure Boot są nieodwracalne; zmiana tablicy partycji wymaga <code>erase-flash</code> i ponownego parowania. Bootloader większy – offset partycji 0x10000.</p></div>
+<p class="cost"><span class="label">Koszt:</span> pierwszy start trwale zapisuje klucz w eFuse; Release i Secure Boot są nieodwracalne; zmiany partycji wymagają przetestowanej migracji zachowującej istniejące tożsamości. Bootloader większy – offset partycji 0x10000.</p></div>
 
 <h3 id="adr-server">11.4 Serwer</h3>
 
@@ -1229,9 +1194,9 @@ Alert „Wysłano”
 <p class="why"><span class="label">Dlaczego:</span> po restarcie ESP stare połączenie TCP może „wisieć” po stronie serwera aż do timeoutu heartbeat. Zastąpienie od razu kieruje żądania do nowego połączenia; <code>detach_device</code> sprawdza tożsamość połączenia, więc sprzątanie starego nie wyrejestruje nowego.</p>
 <p class="cost"><span class="label">Koszt:</span> dwa urządzenia z tym samym sekretem wyrzucałyby się nawzajem (log ostrzeżenia to ujawnia).</p></div>
 
-<div class="adr"><h4>D35. Dwufazowa rotacja sekretu</h4>
-<p class="why"><span class="label">Dlaczego:</span> jeśli <code>SECRET_ACK</code> zginie albo ESP zrestartuje się w trakcie, żadna ze stron nie może zostać z sekretem, którego druga nie zna. Serwer akceptuje stary i nowy, dopóki nowy nie zostanie potwierdzony lub użyty. Bez potwierdzenia serwer rozłącza ESP, a sekret użyty przy ponownym logowaniu zostaje jedynym ważnym, więc kolejna rotacja nie nadpisze sekretu, który ESP naprawdę ma. <code>rotation_lock</code> zapobiega przeplotowi dwóch rotacji. ESP zapisuje do NVS przed potwierdzeniem.</p>
-<p class="cost"><span class="label">Koszt:</span> dodatkowa kolumna i logika w <code>authenticate</code>/<code>promote_secret</code>.</p></div>
+<div class="adr"><h4>D35. Stałe dane urządzenia i atomowe przypisanie</h4>
+<p class="why"><span class="label">Dlaczego:</span> Urządzenie zapisuje losowy sekret przed przypisaniem i wyprowadza z niego identyfikator. Utratę odpowiedzi serwera naprawia logowanie tymi samymi danymi. Usunięto ręczne zmiany sekretu oraz ich ścieżki protokołu.</p>
+<p class="cost"><span class="label">Koszt:</span> Migracja bazy zachowuje jednorazowe odzyskanie oczekujących starych danych; nie wolno porzucić sekretu, który może mieć działające urządzenie.</p></div>
 
 <div class="adr"><h4>D36. Cele przeżywają usunięcie urządzenia</h4>
 <p class="why"><span class="label">Dlaczego:</span> <code>ON DELETE SET NULL</code> – po wymianie ESP użytkownik nie traci listy komputerów, tylko przypina je do nowego urządzenia (<code>ASSIGN_TARGET</code>).</p>
@@ -1247,9 +1212,9 @@ Alert „Wysłano”
 
 <h3 id="adr-client">11.5 Aplikacja</h3>
 
-<div class="adr"><h4>D39. Expo / React Native z <code>react-native-tcp-socket</code></h4>
-<p class="why"><span class="label">Dlaczego:</span> jeden kod TypeScript, szybki rozwój, EAS Build do APK. Surowe gniazdo TLS jest potrzebne przez D5; ten moduł obsługuje też własne CA (<code>ca</code>) do przypięcia certyfikatu.</p>
-<p class="cost"><span class="label">Koszt:</span> nie działa w Expo Go – potrzebny <code>expo-dev-client</code> lub zbudowany APK. Certyfikat jest assetem (<code>metro.config.js</code> dodaje rozszerzenie <code>pem</code>).</p></div>
+<div class="adr"><h4>D39. Expo z natywnym TLS i provisioningiem Androida</h4>
+<p class="why"><span class="label">Dlaczego:</span> Aplikacja używa modułu gniazd dla istniejącego protokołu i SDK Espressif do konfiguracji BLE. Przypięta poprawka zależności dodaje jawną kontrolę nazwy hosta w module gniazd.</p>
+<p class="cost"><span class="label">Koszt:</span> Wymaga natywnego buildu deweloperskiego lub release; nie działa w Expo Go. Zachowaj poprawkę i obowiązkowy postinstall; nie używaj npm --ignore-scripts w buildzie produkcyjnym.</p></div>
 
 <div class="adr"><h4>D40. Jedna trwała sesja w singletonie <code>WolApi</code></h4>
 <p class="why"><span class="label">Dlaczego:</span> jedno połączenie na aplikację, logowanie (<code>RESUME</code>) raz na połączenie, a nie na każde żądanie. Memoizacja obietnicy sesji sprawia, że równoległe wywołania (np. <code>Promise.all</code> na ekranie głównym) czekają na to samo <code>RESUME</code>. Automatyczne ponowne połączenie przy kolejnym wywołaniu.</p>
@@ -1297,17 +1262,17 @@ Alert „Wysłano”
 
 <h3 id="adr-esp">11.6 Firmware</h3>
 
-<div class="adr"><h4>D51. Parowanie przez jednorazowy claim token</h4>
-<p class="why"><span class="label">Dlaczego:</span> użytkownik nie wpisuje hasła do urządzenia. Token 128 bitów, 10 min, jeden aktywny na konto, przypisany do konta. Serwer wydaje ESP własną tożsamość (<code>device_id</code> + sekret 256 bitów), niezależną od hasła. Dwie drogi: konsola UART (bez ponownego flashowania) albo Kconfig.</p>
-<p class="cost"><span class="label">Koszt:</span> potrzebny dostęp do USB/UART lub przebudowanie firmware.</p></div>
+<div class="adr"><h4>D51. Przypisanie powiązane z kontem i urządzeniem</h4>
+<p class="why"><span class="label">Dlaczego:</span> Krótkotrwały claim trafia przez uwierzytelnioną sesję BLE. Serwer sprawdza konto, docelowe urządzenie i tożsamość wyprowadzoną z sekretu w jednej transakcji.</p>
+<p class="cost"><span class="label">Koszt:</span> Dowodzi to posiadania, a nie pochodzenia sprzętu od określonego producenta.</p></div>
 
-<div class="adr"><h4>D52. ESP pamięta ostatni zużyty token</h4>
-<p class="why"><span class="label">Dlaczego:</span> token z Kconfig jest wkompilowany na zawsze. Bez tego zapisu, po <code>UNPAIRED</code> lub utracie danych ESP wysyłałby go przy każdym starcie, zużywając limity i zaśmiecając logi. Nieznany token nie powoduje połączenia – ESP czeka na <code>claim</code>.</p>
-<p class="cost"><span class="label">Koszt:</span> dodatkowy klucz NVS.</p></div>
+<div class="adr"><h4>D52. Bezpieczne ponowienia po przerwaniu</h4>
+<p class="why"><span class="label">Dlaczego:</span> Trwała tożsamość pozwala odzyskać przez DEVICE_AUTH udany claim z utraconą odpowiedzią. Identyczne ponowienie jest idempotentne; odrzucony claim nie przepisuje istniejącego urządzenia.</p>
+<p class="cost"><span class="label">Koszt:</span> Wygasły niewykorzystany claim wymaga nowej uwierzytelnionej próby konfiguracji.</p></div>
 
-<div class="adr"><h4>D53. Dane logowania również w RAM</h4>
-<p class="why"><span class="label">Dlaczego:</span> jeśli zapis do NVS się nie uda (np. brak miejsca), urządzenie nie traci sparowania do restartu i ponawia zapis. Bez tego nieudany zapis po <code>DEVICE_CLAIM</code> oznaczałby zużyty token i brak tożsamości.</p>
-<p class="cost"><span class="label">Koszt:</span> flaga <code>creds_persisted_</code> i dodatkowe gałęzie.</p></div>
+<div class="adr"><h4>D53. Zapis przed przypisaniem; zatrzymanie przy błędzie pamięci</h4>
+<p class="why"><span class="label">Dlaczego:</span> Urządzenie nie przypisuje tożsamości istniejącej wyłącznie w RAM. Atomowy stan NVS jest trwały przed żądaniem do chmury. Błąd logowania nie kasuje danych.</p>
+<p class="cost"><span class="label">Koszt:</span> Awaria pamięci wymaga odzyskania lub serwisu zamiast cichego utworzenia nowej tożsamości.</p></div>
 
 <div class="adr"><h4>D54. C++ bez wyjątków, wynik przez <code>bool</code>/<code>optional</code>/<code>esp_err_t</code></h4>
 <p class="why"><span class="label">Dlaczego:</span> wyjątki w ESP-IDF zwiększają rozmiar binarki i są wyłączone (<code>CONFIG_COMPILER_CXX_EXCEPTIONS=n</code>). Jawne wartości zwrotne pasują do API ESP-IDF. RAII (<code>NvsHandle</code>, destruktor <code>TlsConnection</code>) pilnuje zasobów.</p>
@@ -1329,9 +1294,9 @@ Alert „Wysłano”
 <p class="why"><span class="label">Dlaczego:</span> UDP może zginąć; część routerów/AP filtruje <code>255.255.255.255</code>, inne broadcast podsieci. Powtórzenia i dwa adresy zwiększają skuteczność. Port 9 (discard) to standard WoL.</p>
 <p class="cost"><span class="label">Koszt:</span> kilka dodatkowych pakietów.</p></div>
 
-<div class="adr"><h4>D59. Osobne zadanie klienta i konsola, powiadomienie zadania</h4>
-<p class="why"><span class="label">Dlaczego:</span> <code>WolClient::run</code> blokuje; konsola działa w swoim zadaniu REPL. <code>xTaskNotifyGive</code> budzi klienta natychmiast po wpisaniu <code>claim</code>, bez aktywnego odpytywania.</p>
-<p class="cost"><span class="label">Koszt:</span> stos 10 KB na zadanie klienta (TLS + cJSON).</p></div>
+<div class="adr"><h4>D59. Lokalna konfiguracja z ograniczonym oknem działania</h4>
+<p class="why"><span class="label">Dlaczego:</span> BLE jest dostępne przy pierwszej konfiguracji lub po fizycznej czynności; klient serwera działa niezależnie po konfiguracji Wi-Fi. Nie ma konsoli UART do wpisywania claimu.</p>
+<p class="cost"><span class="label">Koszt:</span> Płytka produkcyjna potrzebuje dostępnego przycisku konfiguracji i pamięci na BLE, SRP oraz TLS.</p></div>
 
 <h3 id="adr-ops">11.7 Wdrożenie i testy</h3>
 
@@ -1344,22 +1309,23 @@ Alert „Wysłano”
 <p class="cost"><span class="label">Koszt:</span> pełne testy wymagają <code>TEST_DATABASE_URL</code>.</p></div>
 
 <!-- ============================================================ -->
-<h2 id="config">12. Konfiguracja i uruchomienie</h2>
-<p>Szczegółowa instrukcja krok po kroku jest w <a href="../README.md"><code>README.md</code></a>. Najważniejsze:</p>
+<h2 id="config">12. Konfiguracja i uruchamianie</h2>
+<p>Pełne instrukcje zawiera <a href="../README.pl.md">README.pl.md</a>.</p>
 <ol>
-  <li><strong>Certyfikat</strong>: <code>openssl req -x509 ...</code> z CN/SAN zgodnym z adresem serwera; skopiuj <code>server.crt</code> do <code>client/assets/server.pem</code> i <code>esp_client/main/certs/server.crt</code>.</li>
-  <li><strong>Serwer</strong>: <code>.env</code> z <code>TOKEN_PEPPER</code> i <code>DATABASE_URL</code> (lub <code>POSTGRES_PASSWORD</code> dla Compose), opcjonalnie <code>SMTP_*</code>. <code>docker compose up -d --build</code> albo <code>python -m wol_server</code>.</li>
-  <li><strong>Aplikacja</strong>: <code>expo.extra.serverHost/serverPort</code> w <code>app.json</code>; <code>npm ci</code>, <code>npm run android</code> lub <code>npm run build:apk</code>.</li>
-  <li><strong>Firmware</strong>: <code>idf.py menuconfig</code> → „Wake-on-LAN client” (<code>WOL_WIFI_SSID</code>, <code>WOL_WIFI_PASSWORD</code>, <code>WOL_SERVER_HOST</code>, <code>WOL_SERVER_PORT</code>, opcjonalnie <code>WOL_CLAIM_TOKEN</code>, <code>WOL_SKIP_CN_CHECK</code> tylko do testów); <code>idf.py build flash monitor</code>.</li>
+<li><strong>Serwer:</strong> ustaw <code>TLS_SERVER_NAME</code>, <code>ACME_EMAIL</code>, <code>TOKEN_PEPPER</code> i <code>POSTGRES_PASSWORD</code> w <code>.env</code>. Skieruj publiczny DNS na host, otwórz TCP 80/8443/8444 i wykonaj <code>docker compose up -d --build</code>.</li>
+<li><strong>TLS:</strong> ACME uzyskuje i odnawia certyfikat, publikuje atomowy <code>server.pem</code> z ograniczonym dostępem, a serwer przeładowuje poprawne zmiany dla nowych połączeń. Monitoruj <code>docker compose logs acme server</code> oraz ostrzeżenia o wygaśnięciu. Wdrożenia natywne używają zewnętrznie zarządzanych plików ACME.</li>
+<li><strong>Aplikacja:</strong> ustaw publiczny DNS w <code>app.json</code>, uruchom <code>npm ci</code> z obowiązkową poprawką TLS, następnie natywny build Androida. Konfiguracja QR wymaga uprawnień aparatu i BLE.</li>
+<li><strong>Firmware:</strong> użyj ESP-IDF 5.5.1, ustaw host/port produktu oraz właściwy GPIO przycisku. W produkcji przygotuj unikalne szyfrowane dane NVS i prywatny QR każdego egzemplarza. Wi-Fi konfiguruje aplikacja.</li>
 </ol>
-<div class="warn">Domyślny <code>sdkconfig.defaults</code> włącza szyfrowanie flasha – pierwsze uruchomienie zapisuje klucz w eFuse. Profil release (Secure Boot v2) jest nieodwracalny. Przeczytaj sekcję o zabezpieczeniach w <code>PROTOCOL.md</code> przed pierwszym flashowaniem.</div>
+<div class="warn">Szyfrowanie flash i Secure Boot wymagają sprawdzonej procedury produkcyjnej dla płytki. Zmiany eFuse są nieodwracalne; nie kasuj tożsamości klientów podczas rutynowych aktualizacji. Przed wydaniem przetestuj natywny przebieg Android/ESP32 na sprzęcie.</div>
 
 <h4>Zmienne środowiskowe serwera</h4>
 <table>
 <tr><th>Zmienna</th><th>Domyślnie</th><th>Opis</th></tr>
 <tr><td><code>SERVER_HOST</code></td><td><code>0.0.0.0</code></td><td>Adres nasłuchu.</td></tr>
 <tr><td><code>CLIENT_PORT</code> / <code>DEVICE_PORT</code></td><td>wymagane (8443 / 8444)</td><td>Porty; muszą być różne.</td></tr>
-<tr><td><code>TLS_CERT_FILE</code> / <code>TLS_KEY_FILE</code></td><td><code>server.crt</code> / <code>server.key</code></td><td>Ścieżki względem <code>server/</code>.</td></tr>
+<tr><td><code>TLS_CERT_FILE</code> / <code>TLS_KEY_FILE</code></td><td><code>certs/server.pem</code></td><td>Zarządzane ścieżki pełnego łańcucha/klucza; Compose dostarcza jeden atomowy PEM.</td></tr>
+<tr><td><code>TLS_SERVER_NAME</code>, <code>ACME_EMAIL</code>, <code>TLS_RELOAD_INTERVAL</code></td><td>DNS / kontakt / 60 s</td><td>Dokładny DNS SAN, kontakt konta ACME, interwał przeładowania (1–3600 s).</td></tr>
 <tr><td><code>DATABASE_URL</code></td><td>wymagane</td><td><code>postgresql://...</code></td></tr>
 <tr><td><code>DB_POOL_SIZE</code></td><td>10</td><td>1–100.</td></tr>
 <tr><td><code>TOKEN_PEPPER</code></td><td>wymagane</td><td>≥ 32 znaki, klucz HMAC.</td></tr>
@@ -1377,8 +1343,9 @@ Alert „Wysłano”
 <tr><td><code>test_validation.py</code></td><td>Reguły pól (nazwy, e-mail, MAC, kody).</td></tr>
 <tr><td><code>test_ratelimit.py</code></td><td>Kubełki tokenów ze sztucznym zegarem.</td></tr>
 <tr><td><code>test_dispatcher.py</code></td><td>Routing, schemat, stan logowania, zamiana wyjątków.</td></tr>
+<tr><td><code>test_tls.py</code>, <code>test_config.py</code></td><td>Wymiana certyfikatu, odrzucenie błędnego przeładowania, ważność/konfiguracja i atomowa publikacja ACME.</td></tr>
 <tr><td><code>test_transport.py</code></td><td>Timeouty, złe i za długie ramki, limity połączeń (bez bazy).</td></tr>
-<tr><td><code>test_repo.py</code></td><td>Repozytoria na prawdziwym PostgreSQL (limity, rotacja, epoka).</td></tr>
+<tr><td><code>test_repo.py</code></td><td>Repozytoria na prawdziwym PostgreSQL (limity, powiązane claimy, odzyskiwanie, epoka).</td></tr>
 <tr><td><code>test_password_reset.py</code></td><td>Pełny przepływ resetu z <code>FakeMailer</code>.</td></tr>
 <tr><td><code>test_integration.py</code></td><td>Scenariusze end-to-end przez TLS: rejestracja, parowanie, budzenie, unieważnianie.</td></tr>
 </table>

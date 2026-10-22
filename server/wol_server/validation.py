@@ -1,5 +1,8 @@
 """Input rules. Each function returns the normalized value or raises CommandError."""
 
+import base64
+import hashlib
+import hmac
 import re
 import unicodedata
 
@@ -87,7 +90,7 @@ def token(value: str) -> str:
 
 
 def device_id(value: str) -> str:
-    """Device ids are server-issued tokens; anything else cannot exist."""
+    """Device ids are opaque tokens; legacy server-issued identities remain valid."""
     if not is_token(value):
         raise CommandError(Err.NOT_FOUND)
     return value
@@ -100,3 +103,26 @@ def reset_code(value: str) -> str:
     if not RESET_CODE_RE.fullmatch(code):
         raise CommandError(Err.INVALID_TOKEN)
     return code
+
+
+def _enrollment_bytes(value: str) -> bytes:
+    """Require the canonical unpadded base64url representation of 32 bytes."""
+    if len(value) != 43 or not is_token(value):
+        raise CommandError(Err.INVALID_TOKEN)
+    decoded = base64.urlsafe_b64decode(value + "=")
+    if base64.urlsafe_b64encode(decoded).rstrip(b"=").decode() != value:
+        raise CommandError(Err.INVALID_TOKEN)
+    return decoded
+
+
+def enrollment_id(value: str) -> str:
+    _enrollment_bytes(value)
+    return value
+
+
+def enrollment_credentials(device_id: str, secret: str) -> None:
+    """An observed device id cannot be claimed without possession of its secret."""
+    identity = _enrollment_bytes(device_id)
+    key = _enrollment_bytes(secret)
+    if not hmac.compare_digest(identity, hashlib.sha256(key).digest()):
+        raise CommandError(Err.INVALID_TOKEN)

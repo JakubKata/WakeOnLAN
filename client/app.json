@@ -11,12 +11,23 @@
       "package": "com.wol.client",
       "edgeToEdgeEnabled": true
     },
-    "plugins": ["expo-router", "expo-secure-store"],
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "./plugins/withProvisioning",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Wake on LAN to scan the setup code on your device.",
+          "recordAudioAndroid": false
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": false
     },
     "extra": {
-      "serverHost": "192.168.1.10",
+      "serverHost": "wol.example.com",
       "serverPort": 8443
     }
   }
